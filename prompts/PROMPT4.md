@@ -1,0 +1,1 @@
+Implement the Telegram bot layer. Start with src/telegram_bot/bot.py using ApplicationBuilder. Then implement src/telegram_bot/handlers/common.py with /start, /help, and /cancel handlers. Add a security decorator or middleware that checks TELEGRAM_ALLOWED_USER_IDS and rejects unauthorized users with a polite message. Do not implement the /newhire or /terminate handlers yet.

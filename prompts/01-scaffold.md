@@ -1,0 +1,1 @@
+Read CLAUDE.md. Scaffold the entire hr-pilot project structure — all directories, all __init__.py files, .gitignore, .env.example, requirements.txt, and pyproject.toml. Do not implement any logic yet, just create the skeleton with placeholder comments in each file describing its purpose.

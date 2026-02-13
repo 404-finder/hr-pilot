@@ -1,0 +1,1 @@
+Implement src/utils/logger.py with structured logging config that masks sensitive fields (SSN, passwords). Implement src/utils/screenshots.py exactly as specified in CLAUDE.md. Implement src/utils/encryption.py with basic Fernet encryption for sensitive data at rest. Create src/adp/exceptions.py with all custom exception classes from CLAUDE.md.

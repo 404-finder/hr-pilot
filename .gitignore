@@ -61,3 +61,6 @@ prompts
 
 # Documents
 doc
+
+# Claude settings
+.claude

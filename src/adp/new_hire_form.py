@@ -8,7 +8,7 @@ import logging
 
 from playwright.async_api import Page
 
-from src.adp.base_form import click_and_wait, fill_date_field, fill_text_field
+from src.adp.base_form import click_and_wait, fill_date_field, fill_text_field, fill_react_dropdown
 from src.adp.exceptions import FormSubmissionError
 from src.config_tables import (
     JOB_TITLES,
@@ -67,15 +67,19 @@ from src.utils.screenshots import capture_screenshot
 logger = logging.getLogger(__name__)
 
 
-async def fill_new_hire_form(page: Page, hire: NewHire) -> str:
-    """Fill out the ADP new hire form and return the Associate ID.
+async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) -> dict:
+    """Fill out the ADP new hire form with dry run support.
 
     Args:
         page: Authenticated ADP page (already navigated to new hire form).
         hire: Validated new hire data.
+        dry_run: If True, fills form but doesn't submit. If False, submits the form.
 
     Returns:
-        The captured Associate ID string.
+        Dictionary with:
+            - associate_id (str): The captured Associate ID
+            - screenshot_path (str): Path to the screenshot
+            - submitted (bool): Whether the form was actually submitted
 
     Raises:
         FormSubmissionError: If form submission fails.
@@ -102,31 +106,39 @@ async def fill_new_hire_form(page: Page, hire: NewHire) -> str:
         await fill_text_field(page, PERSONAL_EMAIL_INPUT, hire.email)
 
         # Check "Use for Notification" checkbox
+        # Use JavaScript to check the checkbox directly (ADP forms have viewport issues)
         await page.wait_for_selector(USE_FOR_NOTIFICATION_CHECKBOX, timeout=10000)
-        await page.click(USE_FOR_NOTIFICATION_CHECKBOX)
-        logger.debug("Checked 'Use for Notification' checkbox")
+        await page.evaluate(f'''
+            document.querySelector('{USE_FOR_NOTIFICATION_CHECKBOX}').checked = true;
+            document.querySelector('{USE_FOR_NOTIFICATION_CHECKBOX}').dispatchEvent(new Event('change', {{ bubbles: true }}));
+        ''')
+        logger.debug("Checked 'Use for Notification' checkbox using JavaScript")
 
         # Fill hire date
         hire_date_str = hire.start_date.strftime("%m/%d/%Y")
         await fill_date_field(page, HIRE_DATE_INPUT, hire_date_str)
 
         # Select reason for hire (resolve from config_tables)
+        # This is a React Select dropdown
         reason_label = REASON_FOR_HIRE[hire.reason]
-        await page.wait_for_selector(REASON_FOR_HIRE_SELECT, timeout=10000)
-        await page.select_option(REASON_FOR_HIRE_SELECT, label=reason_label)
+        await fill_react_dropdown(page, REASON_FOR_HIRE_SELECT, reason_label)
         logger.debug(f"Selected reason for hire: {reason_label}")
 
         # Select company code (from store config)
+        # This is a React Select dropdown
         company_code = store_config["company_code"]
-        await page.wait_for_selector(COMPANY_CODE_SELECT, timeout=10000)
-        await page.select_option(COMPANY_CODE_SELECT, label=company_code)
+        await fill_react_dropdown(page, COMPANY_CODE_SELECT, company_code)
         logger.debug(f"Selected company code: {company_code}")
 
         # Select tax ID type (always SSN)
+        # This is a React Select dropdown
         tax_id_label = TAX_ID_TYPE["ssn"]
-        await page.wait_for_selector(TAX_ID_TYPE_SELECT, timeout=10000)
-        await page.select_option(TAX_ID_TYPE_SELECT, label=tax_id_label)
+        await fill_react_dropdown(page, TAX_ID_TYPE_SELECT, tax_id_label)
         logger.debug("Selected tax ID type: SSN")
+
+        # Wait for Associate ID to generate
+        logger.debug("Waiting 2 seconds for Associate ID to generate...")
+        await page.wait_for_timeout(2000)
 
         # Capture Associate ID
         await page.wait_for_selector(ASSOCIATE_ID_INPUT, timeout=10000)
@@ -146,17 +158,17 @@ async def fill_new_hire_form(page: Page, hire: NewHire) -> str:
         logger.info(f"Assigning onboarding experience: {onboarding_experience}")
         await page.wait_for_selector(ASSIGN_ONBOARDING_BUTTON, timeout=10000)
         await page.click(ASSIGN_ONBOARDING_BUTTON)
-        await page.wait_for_selector(ONBOARDING_TEMPLATE_SELECT, timeout=10000)
-        await page.select_option(ONBOARDING_TEMPLATE_SELECT, label=onboarding_experience)
+        # This is a React Select dropdown
+        await fill_react_dropdown(page, ONBOARDING_TEMPLATE_SELECT, onboarding_experience)
         await page.click(ASSIGN_EXP_BUTTON)
         await page.click(BACK_BUTTON)
         logger.debug(f"Assigned onboarding experience: {onboarding_experience}")
 
         # Select Worked In State (from store config)
+        # This is a React Select dropdown
         worked_in_state = store_config["worked_in_state"]
         logger.info(f"Selecting worked in state: {worked_in_state}")
-        await page.wait_for_selector(WORKED_IN_STATE_SELECT, timeout=10000)
-        await page.select_option(WORKED_IN_STATE_SELECT, label=worked_in_state)
+        await fill_react_dropdown(page, WORKED_IN_STATE_SELECT, worked_in_state)
         logger.debug(f"Selected worked in state: {worked_in_state}")
 
         # Reports To (Manager) sub-flow (auto-derived from store number)
@@ -167,16 +179,26 @@ async def fill_new_hire_form(page: Page, hire: NewHire) -> str:
         await page.wait_for_selector(MANAGER_NAME_SEARCH_INPUT, timeout=10000)
         await page.fill(MANAGER_NAME_SEARCH_INPUT, manager_name)
         await page.click(MANAGER_SEARCH_BUTTON)
-        await page.wait_for_selector(MANAGER_RADIO_BUTTON, timeout=10000)
-        await page.click(MANAGER_RADIO_BUTTON)
+
+        # Wait for search results to load
+        await page.wait_for_timeout(3000)
+
+        # Click the first radio button in the search results using JavaScript
+        # The modal has multiple radio buttons, we want the first one in the results table
+        await page.evaluate('''
+            const radioButtons = document.querySelectorAll('#reportsToLabel_Id sdf-radio-button');
+            if (radioButtons.length > 0) {
+                radioButtons[0].click();
+            }
+        ''')
         await page.click(SAVE_MANAGER_BUTTON)
         logger.debug(f"Assigned manager: {manager_name}")
 
         # Select E-Verify Work Location (from store number)
+        # This is a React Select dropdown
         everify_location = get_everify_location(hire.store_number)
         logger.info(f"Selecting E-Verify work location: {everify_location}")
-        await page.wait_for_selector(E_VERIFY_LOCATION_SELECT, timeout=10000)
-        await page.select_option(E_VERIFY_LOCATION_SELECT, label=everify_location)
+        await fill_react_dropdown(page, E_VERIFY_LOCATION_SELECT, everify_location)
         logger.debug(f"Selected E-Verify location: {everify_location}")
 
         # Save modal
@@ -206,21 +228,21 @@ async def fill_new_hire_form(page: Page, hire: NewHire) -> str:
         logger.info("Filling employment section")
 
         # Job Title (resolve from config_tables)
+        # This is a React Select dropdown
         job_title_label = JOB_TITLES[hire.job_title]
-        await page.wait_for_selector(JOB_TITLE_SELECT, timeout=10000)
-        await page.select_option(JOB_TITLE_SELECT, label=job_title_label)
+        await fill_react_dropdown(page, JOB_TITLE_SELECT, job_title_label)
         logger.debug(f"Selected job title: {job_title_label}")
 
         # Worker Category (resolve from config_tables)
+        # This is a React Select dropdown
         worker_category_label = WORK_SCHEDULE[hire.work_schedule]
-        await page.wait_for_selector(WORKER_CATEGORY_SELECT, timeout=10000)
-        await page.select_option(WORKER_CATEGORY_SELECT, label=worker_category_label)
+        await fill_react_dropdown(page, WORKER_CATEGORY_SELECT, worker_category_label)
         logger.debug(f"Selected worker category: {worker_category_label}")
 
         # Benefits Eligibility Class (from store config)
+        # This is a React Select dropdown
         benefits_eligibility = store_config["benefits_eligibility"]
-        await page.wait_for_selector(BENEFITS_ELIGIBILITY_CLASS_SELECT, timeout=10000)
-        await page.select_option(BENEFITS_ELIGIBILITY_CLASS_SELECT, label=benefits_eligibility)
+        await fill_react_dropdown(page, BENEFITS_ELIGIBILITY_CLASS_SELECT, benefits_eligibility)
         logger.debug(f"Selected benefits eligibility class: {benefits_eligibility}")
 
         # Calculate Using Measurement Periods radio (from store config)
@@ -230,9 +252,9 @@ async def fill_new_hire_form(page: Page, hire: NewHire) -> str:
             logger.debug("Selected measurement periods option")
 
         # Home Department (auto-derived from store number + job title)
+        # This is a React Select dropdown
         home_department = get_home_department(hire.store_number, hire.job_title)
-        await page.wait_for_selector(HOME_DEPARTMENT_SELECT, timeout=10000)
-        await page.select_option(HOME_DEPARTMENT_SELECT, label=home_department)
+        await fill_react_dropdown(page, HOME_DEPARTMENT_SELECT, home_department)
         logger.debug(f"Selected home department: {home_department}")
 
         # Proceed to Payroll section
@@ -254,8 +276,8 @@ async def fill_new_hire_form(page: Page, hire: NewHire) -> str:
         logger.info("Filling payroll section")
 
         # Compensation Type (always Hourly)
-        await page.wait_for_selector(COMPENSATION_TYPE_SELECT, timeout=10000)
-        await page.select_option(COMPENSATION_TYPE_SELECT, label="Hourly")
+        # This is a React Select dropdown
+        await fill_react_dropdown(page, COMPENSATION_TYPE_SELECT, "Hourly")
         logger.debug("Selected Hourly compensation type")
 
         # Regular Pay Rate
@@ -273,9 +295,9 @@ async def fill_new_hire_form(page: Page, hire: NewHire) -> str:
         logger.info("Filling tax section")
 
         # SUI/SDI Tax Code (from store config)
+        # This is a React Select dropdown
         sui_sdi_tax_code = store_config["sui_sdi_tax_code"]
-        await page.wait_for_selector(SUI_SDI_TAX_CODE_SELECT, timeout=10000)
-        await page.select_option(SUI_SDI_TAX_CODE_SELECT, label=sui_sdi_tax_code)
+        await fill_react_dropdown(page, SUI_SDI_TAX_CODE_SELECT, sui_sdi_tax_code)
         logger.debug(f"Selected SUI/SDI tax code: {sui_sdi_tax_code}")
 
         # Proceed to Direct Deposit section
@@ -302,9 +324,27 @@ async def fill_new_hire_form(page: Page, hire: NewHire) -> str:
         await page.click(EMERGENCY_CONTACT_NEXT_BUTTON)
 
         # ====================================================================
-        # SAVE AND EXIT
+        # DRY RUN CHECK
         # ====================================================================
-        logger.info("Saving and exiting new hire form")
+        # Take screenshot of filled form for review
+        screenshot_filename = f"new_hire_review_{hire.first_name}_{hire.last_name}".replace(" ", "_")
+        screenshot_path = await capture_screenshot(page, screenshot_filename)
+        logger.info(f"Captured review screenshot: {screenshot_path}")
+
+        if dry_run:
+            # Dry run mode - DO NOT submit
+            logger.info(f"Dry run mode - NOT submitting form for {hire.first_name} {hire.last_name}")
+            logger.info(f"Associate ID: {associate_id}")
+            return {
+                "associate_id": associate_id,
+                "screenshot_path": screenshot_path,
+                "submitted": False
+            }
+
+        # ====================================================================
+        # SAVE AND EXIT (only if dry_run=False)
+        # ====================================================================
+        logger.info("Submitting and saving new hire form")
 
         await page.wait_for_selector(SAVE_AND_EXIT_BUTTON, timeout=10000)
         await page.click(SAVE_AND_EXIT_BUTTON)
@@ -312,10 +352,18 @@ async def fill_new_hire_form(page: Page, hire: NewHire) -> str:
         # Wait for redirect to In-Progress Hires page
         await page.wait_for_timeout(3000)
 
-        logger.info(f"Successfully created new hire: {hire.first_name} {hire.last_name}")
+        # Take success screenshot
+        screenshot_filename = f"new_hire_submitted_{hire.first_name}_{hire.last_name}".replace(" ", "_")
+        screenshot_path = await capture_screenshot(page, screenshot_filename)
+
+        logger.info(f"Successfully submitted new hire: {hire.first_name} {hire.last_name}")
         logger.info(f"Associate ID: {associate_id}")
 
-        return associate_id
+        return {
+            "associate_id": associate_id,
+            "screenshot_path": screenshot_path,
+            "submitted": True
+        }
 
     except Exception as e:
         logger.error(f"Failed to fill new hire form: {e}")

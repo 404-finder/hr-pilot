@@ -109,13 +109,19 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         await fill_text_field(page, PERSONAL_EMAIL_INPUT, hire.email)
 
         # Check "Use for Notification" checkbox
-        # Use JavaScript to check the checkbox directly (ADP forms have viewport issues)
+        # Element may be behind overlay or outside viewport — use JS evaluate to bypass
+        logger.info("Checking 'Use for Notification' checkbox")
         await page.wait_for_selector(USE_FOR_NOTIFICATION_CHECKBOX, timeout=10000)
-        await page.evaluate(f'''
-            document.querySelector('{USE_FOR_NOTIFICATION_CHECKBOX}').checked = true;
-            document.querySelector('{USE_FOR_NOTIFICATION_CHECKBOX}').dispatchEvent(new Event('change', {{ bubbles: true }}));
-        ''')
-        logger.debug("Checked 'Use for Notification' checkbox using JavaScript")
+        checked = False
+        try:
+            await page.locator(USE_FOR_NOTIFICATION_CHECKBOX).evaluate("el => el.click()")
+            checked = await page.is_checked(USE_FOR_NOTIFICATION_CHECKBOX)
+        except Exception as e:
+            logger.warning(f"locator.evaluate click failed for notification checkbox: {e}")
+        if checked:
+            logger.info("CONFIRMED: 'Use for Notification' checkbox is checked")
+        else:
+            logger.warning("WARNING: 'Use for Notification' checkbox may not be checked")
 
         # Fill hire date
         hire_date_str = hire.start_date.strftime("%m/%d/%Y")
@@ -234,6 +240,9 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         await page.wait_for_selector(SAVE_MODAL_BUTTON, timeout=10000)
         await page.click(SAVE_MODAL_BUTTON)
 
+        # Debug screenshot after personal section
+        await capture_screenshot(page, "debug_personal_done")
+
         # ====================================================================
         # PROCEED TO EMPLOYMENT SECTION
         # ====================================================================
@@ -250,6 +259,8 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         except Exception:
             logger.debug("No validation popup appeared")
 
+        await page.wait_for_timeout(3000)  # Wait for Employment section to become visible
+
         # ====================================================================
         # EMPLOYMENT SECTION
         # ====================================================================
@@ -258,19 +269,34 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         # Job Title (resolve from config_tables)
         job_title_label = JOB_TITLES[hire.job_title]
         job_title_match = job_title_label.split(" - ", 1)[1].strip() if " - " in job_title_label else job_title_label
+        logger.info(f"Filling Job Title with value: {job_title_label}")
         await fill_mdf_dropdown(page, JOB_TITLE_SELECT, get_search_code(job_title_label), job_title_match)
-        logger.debug(f"Selected job title: {job_title_label}")
+        job_title_el = await page.query_selector(f'[class*="MDFSelectBox__single-value"]:has-text("{job_title_match}")')
+        if job_title_el:
+            logger.info(f"CONFIRMED: Job Title = '{job_title_match}'")
+        else:
+            logger.warning(f"WARNING: Job Title may not have filled correctly (expected '{job_title_match}')")
 
         # Worker Category (resolve from config_tables)
         worker_category_label = WORK_SCHEDULE[hire.work_schedule]
         worker_category_match = worker_category_label.split(" - ", 1)[1].strip() if " - " in worker_category_label else worker_category_label
+        logger.info(f"Filling Worker Category with value: {worker_category_label}")
         await fill_mdf_dropdown(page, WORKER_CATEGORY_SELECT, get_search_code(worker_category_label), worker_category_match)
-        logger.debug(f"Selected worker category: {worker_category_label}")
+        worker_cat_el = await page.query_selector(f'[class*="MDFSelectBox__single-value"]:has-text("{worker_category_match}")')
+        if worker_cat_el:
+            logger.info(f"CONFIRMED: Worker Category = '{worker_category_match}'")
+        else:
+            logger.warning(f"WARNING: Worker Category may not have filled correctly (expected '{worker_category_match}')")
 
         # Benefits Eligibility Class (from store config)
         benefits_eligibility = store_config["benefits_eligibility"]
+        logger.info(f"Filling Benefits Eligibility Class with value: {benefits_eligibility}")
         await fill_mdf_dropdown(page, BENEFITS_ELIGIBILITY_CLASS_SELECT, "BE", "Benefit Eligible")
-        logger.debug(f"Selected benefits eligibility class: {benefits_eligibility}")
+        benefits_el = await page.query_selector('[class*="MDFSelectBox__single-value"]:has-text("Benefit Eligible")')
+        if benefits_el:
+            logger.info("CONFIRMED: Benefits Eligibility Class = 'Benefit Eligible'")
+        else:
+            logger.warning("WARNING: Benefits Eligibility Class may not have filled correctly")
 
         # Calculate Using Measurement Periods radio (from store config)
         if store_config["measurement_periods"]:
@@ -280,8 +306,16 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
 
         # Home Department (auto-derived from store number + job title)
         home_department = get_home_department(hire.store_number, hire.job_title)
+        logger.info(f"Filling Home Department with value: {home_department}")
         await fill_mdf_dropdown(page, HOME_DEPARTMENT_SELECT, home_department, home_department)
-        logger.debug(f"Selected home department: {home_department}")
+        home_dept_el = await page.query_selector(f'[class*="MDFSelectBox__single-value"]:has-text("{home_department}")')
+        if home_dept_el:
+            logger.info(f"CONFIRMED: Home Department = '{home_department}'")
+        else:
+            logger.warning(f"WARNING: Home Department may not have filled correctly (expected '{home_department}')")
+
+        # Debug screenshot after employment section
+        await capture_screenshot(page, "debug_employment_done")
 
         # Proceed to Payroll section
         logger.info("Proceeding to Payroll section")
@@ -302,16 +336,30 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         logger.info("Filling payroll section")
 
         # Compensation Type (always Hourly)
+        logger.info("Filling Compensation Type with value: Hourly")
         await fill_mdf_dropdown(page, COMPENSATION_TYPE_SELECT, "Hour", "Hourly")
-        logger.debug("Selected Hourly compensation type")
+        comp_el = await page.query_selector('[class*="MDFSelectBox__single-value"]:has-text("Hourly")')
+        if comp_el:
+            logger.info("CONFIRMED: Compensation Type = 'Hourly'")
+        else:
+            logger.warning("WARNING: Compensation Type may not have filled correctly")
 
         # Regular Pay Rate — use click+triple-click+type to trigger React onChange
+        logger.info(f"Filling Regular Pay Rate with value: {hire.pay_rate}")
         await page.wait_for_selector(REGULAR_PAY_RATE_INPUT, timeout=10000)
         await page.click(REGULAR_PAY_RATE_INPUT)
         await page.keyboard.press("Control+a")
         await page.type(REGULAR_PAY_RATE_INPUT, str(hire.pay_rate))
         await page.keyboard.press("Tab")
-        logger.debug(f"Entered pay rate: {hire.pay_rate}")
+        await page.wait_for_timeout(500)
+        actual_pay_rate = await page.input_value(REGULAR_PAY_RATE_INPUT)
+        if actual_pay_rate:
+            logger.info(f"CONFIRMED: Regular Pay Rate = '{actual_pay_rate}'")
+        else:
+            logger.warning(f"WARNING: Regular Pay Rate may not have filled correctly (expected '{hire.pay_rate}')")
+
+        # Debug screenshot after payroll section
+        await capture_screenshot(page, "debug_payroll_done")
 
         # Proceed to Tax section
         logger.info("Proceeding to Tax section")

@@ -82,6 +82,13 @@ async def handle_new_hire(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 caption=f"[OK] Form filled for {hire.first_name} {hire.last_name}"
             )
 
+        # Surface any warnings (e.g. manager not found)
+        if result.get("warnings"):
+            warning_text = "[WARNING] The following issues occurred:\n" + "\n".join(
+                f"  - {w}" for w in result["warnings"]
+            )
+            await update.message.reply_text(warning_text)
+
         # Send confirmation prompt
         confirmation_message = (
             f"Review the screenshot above.\n\n"

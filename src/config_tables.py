@@ -29,10 +29,10 @@ STORE_LOCATIONS = {
 }
 
 LOCATION_MANAGERS = {
-    "39101": "Chandler Wilder",
-    "39102": "Brandon Hudgens",
-    "39103": "Josue Gonzalez",
-    "39104": "Mary De Los Rios",
+    "39101": {"name": "Chandler Wilder", "search": "Wilder"},
+    "39102": {"name": "Brandon Hudgens", "search": "Hudgens"},
+    "39103": {"name": "Josue Gonzalez", "search": "Gonzalez"},
+    "39104": {"name": "Mary De Los Rios", "search": "De Los Rios"},
 }
 
 JOB_TITLES = {
@@ -77,6 +77,29 @@ CREW_JOB_TITLES = {"crew"}
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
+
+
+def get_search_code(adp_value: str) -> str:
+    """Extract the search code from an ADP dropdown value.
+
+    For values like 'CODE - Description', returns the code portion.
+    For other values, returns the first 3 characters.
+
+    Args:
+        adp_value: Full ADP dropdown option text.
+
+    Returns:
+        Short code suitable for filtering the MDF dropdown.
+
+    Examples:
+        >>> get_search_code("BE - Benefit Eligible Team Members")
+        'BE'
+        >>> get_search_code("Manager Trainee")
+        'Man'
+    """
+    if " - " in adp_value:
+        return adp_value.split(" - ")[0].strip()
+    return adp_value[:3]
 
 
 def get_store_prefix(store_number: str) -> Optional[str]:
@@ -167,20 +190,20 @@ def get_everify_location(store_number: str) -> str:
     return STORE_LOCATIONS[store_number]
 
 
-def get_manager(store_number: str) -> str:
-    """Get the manager name for a store number.
+def get_manager(store_number: str) -> dict:
+    """Get the manager info dict for a store number.
 
     Args:
         store_number: Full store number (e.g., "39104").
 
     Returns:
-        Manager name from LOCATION_MANAGERS.
+        Dict with "name" (full name) and "search" (last name for ADP search).
 
     Raises:
         KeyError: If store number not found in LOCATION_MANAGERS.
 
     Examples:
         >>> get_manager("39104")
-        "Mary De Los Rios"
+        {"name": "Mary De Los Rios", "search": "De Los Rios"}
     """
     return LOCATION_MANAGERS[store_number]

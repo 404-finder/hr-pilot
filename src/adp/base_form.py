@@ -96,6 +96,74 @@ async def click_and_wait(
     logger.debug(f"Waited for {wait_selector} to appear")
 
 
+async def fill_mdf_dropdown(
+    page: Page,
+    selector: str,
+    search_code: str,
+    match_text: str,
+    timeout: int = 10000,
+) -> None:
+    """Fill an ADP MDFSelectBox React Select dropdown.
+
+    ADP uses MDFSelectBox (a React Select variant) for most dropdowns.
+    These require clicking to open, typing a short code to filter options,
+    waiting for the list to load, then clicking the matching option.
+
+    Args:
+        page: Playwright page object.
+        selector: CSS selector for the dropdown input element.
+        search_code: Short prefix to type to filter options (e.g., "BE").
+        match_text: Unique substring to identify the correct option.
+        timeout: Maximum wait time in milliseconds.
+    """
+    await page.wait_for_selector(selector, timeout=timeout)
+    await page.click(selector)
+    await page.fill(selector, search_code)
+    logger.debug(f"MDF dropdown {selector}: typed '{search_code}'")
+    await page.wait_for_timeout(1500)
+    option_selector = f'[class*="MDFSelectBox__option"]:has-text("{match_text}")'
+    await page.wait_for_selector(option_selector, timeout=timeout)
+    await page.click(option_selector)
+    await page.wait_for_timeout(500)
+    logger.debug(f"MDF dropdown {selector}: selected '{match_text}'")
+
+
+async def click_visible_next_button(page: Page, timeout: int = 10000) -> None:
+    """Click the first visible primary Next button in the current form section.
+
+    ADP's new hire form keeps Next buttons from all sections in the DOM
+    simultaneously. Playwright's standard selectors pick the first by DOM
+    order (often a hidden section's button). This helper uses JavaScript to
+    find and click only the currently visible Next button.
+
+    Args:
+        page: Playwright page object.
+        timeout: Max wait time (ms) for a visible button to appear.
+
+    Raises:
+        Exception: If no visible primary Next button is found within timeout.
+    """
+    start = page._impl_obj._loop.time()
+    deadline = start + timeout / 1000
+    while True:
+        clicked = await page.evaluate('''() => {
+            const buttons = Array.from(document.querySelectorAll("button.vdl-button--primary"));
+            const btn = buttons.find(b =>
+                b.textContent.trim() === "Next" &&
+                b.offsetParent !== null &&
+                !b.disabled
+            );
+            if (btn) { btn.click(); return true; }
+            return false;
+        }''')
+        if clicked:
+            logger.debug("Clicked visible primary Next button")
+            return
+        if page._impl_obj._loop.time() >= deadline:
+            raise Exception("No visible primary Next button found within timeout")
+        await page.wait_for_timeout(500)
+
+
 async def fill_react_dropdown(
     page: Page,
     selector: str,

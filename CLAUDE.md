@@ -896,33 +896,54 @@ pytest tests/ -v
   - Tests complete navigation to new hire form
   - Captures screenshots at each step
   - Allows 60s manual inspection
+- ✅ `tests/test_form_fill.py` - Full dry-run form fill test
+  - Logs in, navigates, fills all form sections, captures Associate ID
+  - Dry run confirmed working (form NOT submitted)
+  - Associate ID successfully captured
+
+#### New Hire Form (`src/adp/new_hire_form.py`)
+- ✅ **Dry run fully working** — all sections fill correctly
+- ✅ Personal section: name, phone, email, hire date, reason, company code, tax ID
+- ✅ Associate ID captured after tax ID selection
+- ✅ Ask the New Hire modal: onboarding experience, worked-in-state, manager, E-Verify location
+- ✅ Employment section: job title, worker category, benefits eligibility, measurement periods, home department
+- ✅ Payroll section: compensation type, pay rate
+- ✅ Tax section: SUI/SDI tax code
+- ✅ Direct Deposit section: skipped
+- ✅ Emergency Contact section: skipped
+- ✅ `dry_run=True` stops before Save and Exit; returns `associate_id`, `screenshot_path`, `warnings`
+
+#### Registration Code Delivery (`src/adp/registration_code.py`)
+- ✅ Implemented — navigates to Security Management → Personal Registration Codes
+- ✅ Searches by Associate ID, selects employee, sends to personal email
+- ⚠️ Not yet tested end-to-end (triggered after /confirm in Telegram flow)
+
+#### Telegram /newhire Flow
+- ✅ `/newhire` — parse → validate → dry-run fill → screenshot → wait for /confirm
+- ✅ `/confirm` — submit form → send registration code → success message
+- ✅ `/cancel` — close browser, discard pending hire
+- ✅ Auto-cancel after 5 minutes via job_queue
+- ✅ Warnings surfaced to user if manager assignment fails
 
 ---
 
 ### 🔧 In Progress / Needs Implementation
 
 #### High Priority
-1. **New Hire Form Automation** (`src/adp/new_hire_form.py`)
-   - Selectors are verified and documented in `src/adp/selectors/new_hire.py`
-   - Need to implement form filling logic using base_form utilities
-   - Need to implement "Ask the New Hire" modal workflow
-   - Need to capture Associate ID after form submission
-
-2. **Termination Form Automation** (`src/adp/termination_form.py`)
+1. **Termination Form Automation** (`src/adp/termination_form.py`)
    - File exists but only has TODO comments
    - Need to implement employee search
    - Need to implement termination workflow
    - Selectors in `src/adp/selectors/termination.py` are placeholders
 
-3. **Telegram Handler Integration**
-   - `/newhire` handler exists but not connected to ADP automation
-   - `/terminate` handler exists but not connected to ADP automation
-   - Need to wire handlers to ADP form automation
+2. **"Did you start this hire already?" popup handling**
+   - ADP shows `sdf-focus-pane[id="showInProgressActiveEmpInfo_Id"]` if a prior in-progress hire exists for the same person
+   - Need to add dismissal logic at the start of `fill_new_hire_form()`
 
 #### Medium Priority
-4. **MFA Support** - Framework exists but no pyotp implementation yet
-5. **ConversationHandler** - Currently using simple CommandHandlers
-6. **Browser Context Management** - Add proper async context managers
+3. **MFA Support** - Framework exists but no pyotp implementation yet
+4. **ConversationHandler** - Currently using simple CommandHandlers
+5. **Browser Context Management** - Add proper async context managers
 
 ---
 
@@ -939,14 +960,40 @@ pytest tests/ -v
 - Affects test scripts and logging output
 
 #### ADP Navigation Timing
-- Use 15000ms (15s) timeouts for ADP page loads (they're slow)
-- Add 2-3 second delays (`await asyncio.sleep(2)`) after clicks
-- Dashboard needs 10s to fully load after login
+- Use 15000ms (15s) initial wait after login before interacting with the dashboard
+- Use 30000ms (30s) `wait_for_selector` timeout for the Process menu button (dashboard load is variable)
+- Add `wait_for_timeout(3000)` after each section Next button click — ADP renders all sections simultaneously in the DOM; the next section is hidden until the transition completes
+- Dashboard load time is inconsistent — navigation may intermittently fail; simply re-run
+
+#### ADP MDFSelectBox Dropdowns
+- Most ADP dropdowns use the **MDFSelectBox** React Select pattern — NOT standard `<select>` elements
+- Use `fill_mdf_dropdown(page, selector, search_code, match_text)` from `base_form.py`
+- Pattern: click → fill short code (no trailing space) → wait 1.5s → click option by `[class*="MDFSelectBox__option"]:has-text("...")`
+- `get_search_code(adp_value)` in `config_tables.py` extracts code before " - "; returns first 3 chars if no " - " found
+- **Space-sensitive**: "BE " kills results, "BE" works — never include trailing space in search_code
+- `page.fill()` does NOT trigger React onChange on these inputs — always use the MDF pattern
+
+#### React Input Fields (Pay Rate)
+- `page.fill()` sets DOM value but React's controlled components ignore it (no onChange fired)
+- For numeric/text React inputs: `page.click()` → `Control+A` → `page.type()` → `Tab`
+- `page.type()` fires native keyboard events that React's synthetic event system picks up
+
+#### Ambiguous "Next" Button Selectors
+- ADP keeps Next buttons for ALL form sections in the DOM at once — `button.vdl-button--primary:has-text("Next")` resolves to 5+ elements
+- Playwright picks the first by DOM order (often a hidden section's button) and waits forever for it to become visible
+- Use `click_visible_next_button(page)` from `base_form.py` — finds the first button where `offsetParent !== null` (visible) via JavaScript
+
+#### Manager Search (Reports To)
+- ADP manager search does NOT work with full names — use last name only (or partial last name)
+- `LOCATION_MANAGERS` stores `{"name": "Full Name", "search": "LastName"}` — always search by `manager["search"]`
+- After search, check for "There are no entries" text before attempting radio button click
+- Radio button selector: `sdf-radio-button[role="radio"][aria-checked="false"]` — click first result, verify `aria-checked="true"` after
+- If manager search fails: press `Escape` to dismiss the Reports To slider, append to `warnings`, continue — do NOT crash
 
 #### Popup Handling
-- "Remind me later" popup may not appear every time
-- Implementation uses try/except to continue gracefully if not present
-- Logs "Dismissed ADP popup" or "No popup detected"
+- "Remind me later" popup may not appear every time — handled with try/except in `auth.py`
+- **"Did you start this hire already?"** popup (`sdf-focus-pane[id="showInProgressActiveEmpInfo_Id"]`) appears when ADP detects an in-progress hire for the same person — must be dismissed before filling form fields
+- In-progress records from dry runs accumulate — delete them manually from ADP's In-Progress Hires list to prevent this popup
 
 #### Selectors Strategy
 - Prefer text-based selectors where stable: `button:has-text("Process")`
@@ -977,28 +1024,23 @@ pytest tests/ -v
 
 ### 🎯 Next Steps for Implementation
 
-1. **Implement `fill_new_hire_form()` in `src/adp/new_hire_form.py`**
-   - Use verified navigation function from `navigation.py`
-   - Use base_form utilities for field filling
-   - Follow the selector mappings in `src/adp/selectors/new_hire.py`
-   - Implement multi-section form flow (Personal → Employment → Payroll → Tax → etc.)
-   - Handle "Ask the New Hire" modal workflow
-   - Capture Associate ID for registration code delivery
+1. **Handle "Did you start this hire already?" popup** in `fill_new_hire_form()`
+   - Add try/except at the start of the form fill to detect and dismiss `sdf-focus-pane[id="showInProgressActiveEmpInfo_Id"]`
 
-2. **Implement Registration Code Delivery** (`src/adp/registration_code.py`)
-   - Navigate to Security Management portal
-   - Search for employee by Associate ID
-   - Deliver registration code via personal email
+2. **End-to-end test with real data**
+   - Run `tests/test_form_fill.py` with `dry_run=False` on a test employee
+   - Verify Associate ID is captured correctly
+   - Verify registration code is delivered to personal email
 
-3. **Connect Telegram Handlers**
-   - Wire `/newhire` to new hire form automation
-   - Add error handling and progress updates
-   - Send success/failure messages with screenshots
-
-4. **Implement Termination Workflow**
+3. **Implement Termination Workflow**
    - Complete `fill_termination_form()` in `src/adp/termination_form.py`
    - Verify/update selectors in `src/adp/selectors/termination.py`
    - Wire `/terminate` handler to termination automation
+
+4. **End-to-end Telegram test**
+   - Send `/newhire` message via Telegram with real employee data
+   - Verify dry-run screenshot is received, /confirm submits correctly
+   - Verify registration code delivery
 
 ---
 
@@ -1016,7 +1058,14 @@ pytest tests/ -v
 | Rate limited by ADP | Add delays between interactions (`page.wait_for_timeout(1000)`) |
 | Employee not found (termination) | Verify employee ID format matches ADP's expected format |
 | Termination form has extra steps | Some ADP configs require benefits termination — update `termination_form.py` |
-| Navigation fails intermittently | Increase wait times, ADP pages load slowly - use 15000ms timeouts |
+| Navigation fails intermittently | ADP dashboard load is variable; re-run the test. Use 15s initial wait + 30s selector timeout |
+| Dropdown not selecting (MDFSelectBox) | Use `fill_mdf_dropdown()` not `fill_react_dropdown()`. No trailing space in search_code |
+| Pay rate field not filling | Use `page.click()` + `Ctrl+A` + `page.type()` + `Tab` — `page.fill()` doesn't fire React onChange |
+| "Next" button click does nothing | Use `click_visible_next_button()` — generic `button:has-text("Next")` matches hidden buttons from other sections |
+| Section field not visible after Next | Add `wait_for_timeout(3000)` after clicking Next — ADP keeps all sections in DOM, transition takes time |
+| Manager search returns no entries | Use last name only (`manager["search"]`), not full name. ADP search rejects full names |
+| Reports To slider blocks subsequent clicks | If manager search fails, press `Escape` to close the slider before continuing |
+| "Did you start this hire already?" popup | Delete the in-progress record from ADP's In-Progress Hires list, or add popup dismissal code |
 
 ---
 

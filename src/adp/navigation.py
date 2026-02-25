@@ -40,11 +40,11 @@ async def navigate_to_new_hire(page: Page) -> None:
 
         # Wait for dashboard to fully load (ADP is slow)
         logger.info("Waiting for dashboard to fully load")
-        await page.wait_for_timeout(10000)
+        await page.wait_for_timeout(15000)
 
         # Click Process menu
         logger.info("Clicking Process menu")
-        await page.wait_for_selector(PROCESS_MENU_BUTTON, timeout=15000)
+        await page.wait_for_selector(PROCESS_MENU_BUTTON, timeout=30000)
         await page.click(PROCESS_MENU_BUTTON)
 
         # Click Hire/Rehire link

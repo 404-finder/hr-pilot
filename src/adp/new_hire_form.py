@@ -8,7 +8,7 @@ import logging
 
 from playwright.async_api import Page
 
-from src.adp.base_form import click_and_wait, fill_date_field, fill_text_field, fill_react_dropdown
+from src.adp.base_form import click_and_wait, click_visible_next_button, fill_date_field, fill_mdf_dropdown, fill_text_field
 from src.adp.exceptions import FormSubmissionError
 from src.config_tables import (
     JOB_TITLES,
@@ -18,6 +18,7 @@ from src.config_tables import (
     get_everify_location,
     get_home_department,
     get_manager,
+    get_search_code,
     get_store_config,
 )
 from src.adp.selectors.new_hire import (
@@ -84,6 +85,8 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
     Raises:
         FormSubmissionError: If form submission fails.
     """
+    warnings: list[str] = []
+
     try:
         logger.info(f"Starting new hire form for {hire.first_name} {hire.last_name}")
 
@@ -119,21 +122,18 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         await fill_date_field(page, HIRE_DATE_INPUT, hire_date_str)
 
         # Select reason for hire (resolve from config_tables)
-        # This is a React Select dropdown
         reason_label = REASON_FOR_HIRE[hire.reason]
-        await fill_react_dropdown(page, REASON_FOR_HIRE_SELECT, reason_label)
+        reason_match = reason_label.split(" - ", 1)[1].strip() if " - " in reason_label else reason_label
+        await fill_mdf_dropdown(page, REASON_FOR_HIRE_SELECT, get_search_code(reason_label), reason_match)
         logger.debug(f"Selected reason for hire: {reason_label}")
 
         # Select company code (from store config)
-        # This is a React Select dropdown
         company_code = store_config["company_code"]
-        await fill_react_dropdown(page, COMPANY_CODE_SELECT, company_code)
+        await fill_mdf_dropdown(page, COMPANY_CODE_SELECT, get_search_code(company_code), "LC Texas")
         logger.debug(f"Selected company code: {company_code}")
 
         # Select tax ID type (always SSN)
-        # This is a React Select dropdown
-        tax_id_label = TAX_ID_TYPE["ssn"]
-        await fill_react_dropdown(page, TAX_ID_TYPE_SELECT, tax_id_label)
+        await fill_mdf_dropdown(page, TAX_ID_TYPE_SELECT, "United", "Social Security")
         logger.debug("Selected tax ID type: SSN")
 
         # Wait for Associate ID to generate
@@ -158,47 +158,75 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         logger.info(f"Assigning onboarding experience: {onboarding_experience}")
         await page.wait_for_selector(ASSIGN_ONBOARDING_BUTTON, timeout=10000)
         await page.click(ASSIGN_ONBOARDING_BUTTON)
-        # This is a React Select dropdown
-        await fill_react_dropdown(page, ONBOARDING_TEMPLATE_SELECT, onboarding_experience)
+        await fill_mdf_dropdown(page, ONBOARDING_TEMPLATE_SELECT, "Texas", "Texas Experience")
         await page.click(ASSIGN_EXP_BUTTON)
         await page.click(BACK_BUTTON)
         logger.debug(f"Assigned onboarding experience: {onboarding_experience}")
 
         # Select Worked In State (from store config)
-        # This is a React Select dropdown
         worked_in_state = store_config["worked_in_state"]
         logger.info(f"Selecting worked in state: {worked_in_state}")
-        await fill_react_dropdown(page, WORKED_IN_STATE_SELECT, worked_in_state)
+        await fill_mdf_dropdown(page, WORKED_IN_STATE_SELECT, get_search_code(worked_in_state), "Texas")
         logger.debug(f"Selected worked in state: {worked_in_state}")
 
         # Reports To (Manager) sub-flow (auto-derived from store number)
-        manager_name = get_manager(hire.store_number)
-        logger.info(f"Assigning manager: {manager_name}")
+        manager = get_manager(hire.store_number)
+        logger.info(f"Assigning manager: {manager['name']}")
         await page.wait_for_selector(REPORTS_TO_BUTTON, timeout=10000)
         await page.click(REPORTS_TO_BUTTON)
         await page.wait_for_selector(MANAGER_NAME_SEARCH_INPUT, timeout=10000)
-        await page.fill(MANAGER_NAME_SEARCH_INPUT, manager_name)
-        await page.click(MANAGER_SEARCH_BUTTON)
 
-        # Wait for search results to load
-        await page.wait_for_timeout(3000)
+        manager_selected = False
+        search_terms = [manager["search"], manager["name"]]
+        for search_term in search_terms:
+            logger.info(f"Searching manager with: '{search_term}'")
+            await page.fill(MANAGER_NAME_SEARCH_INPUT, "")
+            await page.fill(MANAGER_NAME_SEARCH_INPUT, search_term)
+            await page.click(MANAGER_SEARCH_BUTTON)
+            await page.wait_for_timeout(3000)
 
-        # Click the first radio button in the search results using JavaScript
-        # The modal has multiple radio buttons, we want the first one in the results table
-        await page.evaluate('''
-            const radioButtons = document.querySelectorAll('#reportsToLabel_Id sdf-radio-button');
-            if (radioButtons.length > 0) {
-                radioButtons[0].click();
-            }
-        ''')
-        await page.click(SAVE_MANAGER_BUTTON)
-        logger.debug(f"Assigned manager: {manager_name}")
+            # Only fall back if "There are no entries" is actually present
+            no_entries = await page.evaluate(
+                "document.body.innerText.includes('There are no entries')"
+            )
+            if no_entries:
+                logger.warning(f"Manager search no entries for '{search_term}', trying next term")
+                continue
+
+            # Click the first unchecked radio button in the results
+            logger.info("Clicking first radio button in results")
+            await page.wait_for_selector(
+                'sdf-radio-button[role="radio"][aria-checked="false"]', timeout=5000
+            )
+            await page.click('sdf-radio-button[role="radio"][aria-checked="false"]')
+
+            # Verify selection took effect
+            await page.wait_for_timeout(500)
+            checked = await page.query_selector(
+                'sdf-radio-button[role="radio"][aria-checked="true"]'
+            )
+            if checked:
+                manager_selected = True
+                logger.info(f"Manager radio button confirmed selected for '{search_term}'")
+                break
+            else:
+                logger.warning(f"Radio button click did not register for '{search_term}', trying next term")
+
+        if not manager_selected:
+            warn_msg = f"Manager search failed for '{manager['name']}' — skipping manager assignment"
+            logger.warning(warn_msg)
+            warnings.append(warn_msg)
+            # Dismiss the Reports To slider so it doesn't block subsequent fields
+            await page.keyboard.press("Escape")
+            await page.wait_for_timeout(1000)
+        else:
+            await page.click(SAVE_MANAGER_BUTTON)
+            logger.debug(f"Assigned manager: {manager['name']}")
 
         # Select E-Verify Work Location (from store number)
-        # This is a React Select dropdown
         everify_location = get_everify_location(hire.store_number)
         logger.info(f"Selecting E-Verify work location: {everify_location}")
-        await fill_react_dropdown(page, E_VERIFY_LOCATION_SELECT, everify_location)
+        await fill_mdf_dropdown(page, E_VERIFY_LOCATION_SELECT, everify_location, everify_location)
         logger.debug(f"Selected E-Verify location: {everify_location}")
 
         # Save modal
@@ -228,21 +256,20 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         logger.info("Filling employment section")
 
         # Job Title (resolve from config_tables)
-        # This is a React Select dropdown
         job_title_label = JOB_TITLES[hire.job_title]
-        await fill_react_dropdown(page, JOB_TITLE_SELECT, job_title_label)
+        job_title_match = job_title_label.split(" - ", 1)[1].strip() if " - " in job_title_label else job_title_label
+        await fill_mdf_dropdown(page, JOB_TITLE_SELECT, get_search_code(job_title_label), job_title_match)
         logger.debug(f"Selected job title: {job_title_label}")
 
         # Worker Category (resolve from config_tables)
-        # This is a React Select dropdown
         worker_category_label = WORK_SCHEDULE[hire.work_schedule]
-        await fill_react_dropdown(page, WORKER_CATEGORY_SELECT, worker_category_label)
+        worker_category_match = worker_category_label.split(" - ", 1)[1].strip() if " - " in worker_category_label else worker_category_label
+        await fill_mdf_dropdown(page, WORKER_CATEGORY_SELECT, get_search_code(worker_category_label), worker_category_match)
         logger.debug(f"Selected worker category: {worker_category_label}")
 
         # Benefits Eligibility Class (from store config)
-        # This is a React Select dropdown
         benefits_eligibility = store_config["benefits_eligibility"]
-        await fill_react_dropdown(page, BENEFITS_ELIGIBILITY_CLASS_SELECT, benefits_eligibility)
+        await fill_mdf_dropdown(page, BENEFITS_ELIGIBILITY_CLASS_SELECT, "BE", "Benefit Eligible")
         logger.debug(f"Selected benefits eligibility class: {benefits_eligibility}")
 
         # Calculate Using Measurement Periods radio (from store config)
@@ -252,15 +279,14 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
             logger.debug("Selected measurement periods option")
 
         # Home Department (auto-derived from store number + job title)
-        # This is a React Select dropdown
         home_department = get_home_department(hire.store_number, hire.job_title)
-        await fill_react_dropdown(page, HOME_DEPARTMENT_SELECT, home_department)
+        await fill_mdf_dropdown(page, HOME_DEPARTMENT_SELECT, home_department, home_department)
         logger.debug(f"Selected home department: {home_department}")
 
         # Proceed to Payroll section
         logger.info("Proceeding to Payroll section")
-        await page.wait_for_selector(EMPLOYMENT_NEXT_BUTTON, timeout=10000)
-        await page.click(EMPLOYMENT_NEXT_BUTTON)
+        await click_visible_next_button(page, timeout=10000)
+        await page.wait_for_timeout(3000)  # Wait for Payroll section to become visible
 
         # Handle validation popup if it appears
         try:
@@ -276,18 +302,21 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         logger.info("Filling payroll section")
 
         # Compensation Type (always Hourly)
-        # This is a React Select dropdown
-        await fill_react_dropdown(page, COMPENSATION_TYPE_SELECT, "Hourly")
+        await fill_mdf_dropdown(page, COMPENSATION_TYPE_SELECT, "Hour", "Hourly")
         logger.debug("Selected Hourly compensation type")
 
-        # Regular Pay Rate
-        await fill_text_field(page, REGULAR_PAY_RATE_INPUT, str(hire.pay_rate))
+        # Regular Pay Rate — use click+triple-click+type to trigger React onChange
+        await page.wait_for_selector(REGULAR_PAY_RATE_INPUT, timeout=10000)
+        await page.click(REGULAR_PAY_RATE_INPUT)
+        await page.keyboard.press("Control+a")
+        await page.type(REGULAR_PAY_RATE_INPUT, str(hire.pay_rate))
+        await page.keyboard.press("Tab")
         logger.debug(f"Entered pay rate: {hire.pay_rate}")
 
         # Proceed to Tax section
         logger.info("Proceeding to Tax section")
-        await page.wait_for_selector(PAYROLL_NEXT_BUTTON, timeout=10000)
-        await page.click(PAYROLL_NEXT_BUTTON)
+        await click_visible_next_button(page, timeout=10000)
+        await page.wait_for_timeout(3000)  # Wait for Tax section to become visible
 
         # ====================================================================
         # TAX SECTION
@@ -295,9 +324,8 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         logger.info("Filling tax section")
 
         # SUI/SDI Tax Code (from store config)
-        # This is a React Select dropdown
         sui_sdi_tax_code = store_config["sui_sdi_tax_code"]
-        await fill_react_dropdown(page, SUI_SDI_TAX_CODE_SELECT, sui_sdi_tax_code)
+        await fill_mdf_dropdown(page, SUI_SDI_TAX_CODE_SELECT, "TX", "Texas")
         logger.debug(f"Selected SUI/SDI tax code: {sui_sdi_tax_code}")
 
         # Proceed to Direct Deposit section
@@ -320,8 +348,7 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         # ====================================================================
         logger.info("Skipping Emergency Contact section")
 
-        await page.wait_for_selector(EMERGENCY_CONTACT_NEXT_BUTTON, timeout=10000)
-        await page.click(EMERGENCY_CONTACT_NEXT_BUTTON)
+        await click_visible_next_button(page, timeout=10000)
 
         # ====================================================================
         # DRY RUN CHECK
@@ -338,7 +365,8 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
             return {
                 "associate_id": associate_id,
                 "screenshot_path": screenshot_path,
-                "submitted": False
+                "submitted": False,
+                "warnings": warnings,
             }
 
         # ====================================================================
@@ -362,7 +390,8 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         return {
             "associate_id": associate_id,
             "screenshot_path": screenshot_path,
-            "submitted": True
+            "submitted": True,
+            "warnings": warnings,
         }
 
     except Exception as e:

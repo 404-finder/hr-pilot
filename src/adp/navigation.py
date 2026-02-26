@@ -69,13 +69,20 @@ async def navigate_to_new_hire(page: Page) -> None:
         raise NavigationError(f"Failed to navigate to New Hire form: {e}")
 
 
-async def navigate_to_security_management(page: Page) -> None:
+async def navigate_to_security_management(page: Page) -> Page:
     """Navigate from dashboard to Security Management portal.
 
     Navigation path: Setup → Security Management
 
+    The Security Management link opens in a new browser tab. This function
+    detects the new tab, waits for it to load, and returns it. Falls back
+    to waiting on the current page if no new tab is detected.
+
     Args:
         page: Authenticated ADP page.
+
+    Returns:
+        The page (new tab or current) where Security Management loaded.
 
     Raises:
         NavigationError: If navigation fails.
@@ -88,16 +95,27 @@ async def navigate_to_security_management(page: Page) -> None:
         await page.wait_for_selector(SETUP_MENU_BUTTON, timeout=10000)
         await page.click(SETUP_MENU_BUTTON)
 
-        # Click Security Management link
+        # Click Security Management — may open in a new tab
         logger.info("Clicking Security Management link")
         await page.wait_for_selector(SECURITY_MANAGEMENT_LINK, timeout=10000)
-        await page.click(SECURITY_MANAGEMENT_LINK)
 
-        # Wait for redirect to netsecure.adp.com
-        logger.info("Waiting for redirect to Security Management portal")
-        await page.wait_for_url("**/netsecure.adp.com/**", timeout=30000)
+        new_page = None
+        try:
+            async with page.context.expect_page(timeout=5000) as new_page_info:
+                await page.click(SECURITY_MANAGEMENT_LINK)
+            new_page = await new_page_info.value
+        except Exception:
+            logger.info("No new tab detected for Security Management")
 
-        logger.info("Successfully navigated to Security Management")
+        if new_page is not None:
+            await new_page.wait_for_load_state("load", timeout=30000)
+            logger.info("Security Management opened in new tab -- switched to new tab")
+            return new_page
+
+        # No new tab — navigation happened in current page
+        logger.info("Security Management loaded in current tab")
+        await page.wait_for_load_state("load", timeout=60000)
+        return page
 
     except Exception as e:
         logger.error(f"Failed to navigate to Security Management: {e}")

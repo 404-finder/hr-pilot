@@ -37,40 +37,55 @@ async def send_registration_code(page: Page, associate_id: str, email: str) -> N
     try:
         logger.info(f"Sending registration code to {email} for Associate ID {associate_id}")
 
-        # Navigate to Security Management
-        await navigate_to_security_management(page)
+        # Navigate to Security Management — may return a new tab page
+        active_page = await navigate_to_security_management(page)
 
-        # Navigate to Personal Registration Codes
-        await navigate_to_registration_codes(page)
+        # Navigate to Personal Registration Codes using the active page
+        await navigate_to_registration_codes(active_page)
 
         # Search by Associate ID
         logger.info(f"Searching for Associate ID: {associate_id}")
-        await page.wait_for_selector(ASSOCIATE_ID_SEARCH_INPUT, timeout=10000)
-        await page.fill(ASSOCIATE_ID_SEARCH_INPUT, associate_id)
-        await page.click(SEARCH_BUTTON)
+        await active_page.wait_for_selector(ASSOCIATE_ID_SEARCH_INPUT, timeout=10000)
+        await active_page.fill(ASSOCIATE_ID_SEARCH_INPUT, associate_id)
+        await active_page.click(SEARCH_BUTTON)
 
         # Wait for results and select employee
         logger.info("Selecting employee from search results")
-        await page.wait_for_selector(EMPLOYEE_CHECKBOX, timeout=10000)
-        await page.click(EMPLOYEE_CHECKBOX)
+        await active_page.wait_for_selector(EMPLOYEE_CHECKBOX, timeout=10000)
+        await active_page.click(EMPLOYEE_CHECKBOX)
 
         # Open Issue PRC dropdown
         logger.info("Opening Issue PRC dropdown")
-        await page.wait_for_selector(ISSUE_PRC_DROPDOWN, timeout=10000)
-        await page.click(ISSUE_PRC_DROPDOWN)
+        await active_page.wait_for_selector(ISSUE_PRC_DROPDOWN, timeout=10000)
+        await active_page.click(ISSUE_PRC_DROPDOWN)
 
         # Select Personal Email Address option
         logger.info("Selecting Personal Email Address option")
-        await page.wait_for_selector(PERSONAL_EMAIL_OPTION, timeout=10000)
-        await page.click(PERSONAL_EMAIL_OPTION)
+        await active_page.wait_for_selector(PERSONAL_EMAIL_OPTION, timeout=10000)
+        await active_page.click(PERSONAL_EMAIL_OPTION)
 
-        # Confirm sending
+        # Wait for Dojo popup to render before clicking
+        await active_page.wait_for_timeout(2000)
+
+        # Confirm sending — Dojo framework uses dynamic IDs; use stable selector
         logger.info("Confirming registration code delivery")
-        await page.wait_for_selector(CONFIRMATION_YES_BUTTON, timeout=10000)
-        await page.click(CONFIRMATION_YES_BUTTON)
+        try:
+            await active_page.locator(CONFIRMATION_YES_BUTTON).click()
+        except Exception as e:
+            logger.warning(f"Primary Yes selector failed ({e}) -- trying JS fallback")
+            await active_page.evaluate("""() => {
+                const buttons = document.querySelectorAll('span.dijitButtonText');
+                for (const btn of buttons) {
+                    if (btn.textContent.trim() === 'Yes') {
+                        btn.closest('[role="button"]').click();
+                        return true;
+                    }
+                }
+                return false;
+            }""")
 
-        # Wait for success (brief wait for the banner to appear)
-        await page.wait_for_timeout(3000)
+        # Wait for success banner
+        await active_page.wait_for_timeout(3000)
 
         logger.info(f"Successfully sent registration code to {email}")
 

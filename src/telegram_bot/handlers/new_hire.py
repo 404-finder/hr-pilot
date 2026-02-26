@@ -13,8 +13,10 @@ from src.adp.auth import login_to_adp
 from src.adp.navigation import navigate_to_new_hire
 from src.adp.new_hire_form import fill_new_hire_form
 from src.adp.registration_code import send_registration_code
+from src.adp.selectors.new_hire import SAVE_AND_EXIT_BUTTON
 from src.config import settings
 from src.telegram_bot.parsers import parse_new_hire, parse_new_hire_raw
+from src.utils.screenshots import capture_screenshot
 from src.validators import validate_new_hire_input
 
 logger = logging.getLogger(__name__)
@@ -187,44 +189,45 @@ async def handle_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         logger.info(f"Confirming submission for: {hire.first_name} {hire.last_name}")
         await update.message.reply_text(f"Submitting form for {hire.first_name} {hire.last_name}...")
 
-        # Import the Save and Exit button selector
-        from src.adp.selectors.new_hire import SAVE_AND_EXIT_BUTTON
+        # --- Step 1: Save and Exit ---
+        try:
+            await page.wait_for_selector(SAVE_AND_EXIT_BUTTON, timeout=10000)
+            await page.click(SAVE_AND_EXIT_BUTTON)
+            await page.wait_for_timeout(3000)
 
-        # Click Save and Exit
-        await page.wait_for_selector(SAVE_AND_EXIT_BUTTON, timeout=10000)
-        await page.click(SAVE_AND_EXIT_BUTTON)
+            screenshot_filename = f"new_hire_submitted_{hire.first_name}_{hire.last_name}".replace(" ", "_")
+            screenshot_path = await capture_screenshot(page, screenshot_filename)
 
-        # Wait for save confirmation
-        await page.wait_for_timeout(3000)
+            with open(screenshot_path, 'rb') as screenshot:
+                await update.message.reply_photo(
+                    photo=screenshot,
+                    caption=f"[OK] Form submitted for {hire.first_name} {hire.last_name}"
+                )
 
-        # Take success screenshot
-        from src.utils.screenshots import capture_screenshot
-        screenshot_filename = f"new_hire_submitted_{hire.first_name}_{hire.last_name}".replace(" ", "_")
-        screenshot_path = await capture_screenshot(page, screenshot_filename)
+            logger.info(f"Form submitted for {hire.first_name} {hire.last_name}")
 
-        # Send success screenshot
-        with open(screenshot_path, 'rb') as screenshot:
-            await update.message.reply_photo(
-                photo=screenshot,
-                caption=f"[OK] Form submitted for {hire.first_name} {hire.last_name}"
+        except Exception as e:
+            logger.error(f"Error submitting form: {e}", exc_info=True)
+            await update.message.reply_text(f"[FAIL] Error submitting form:\n{str(e)}")
+            return
+
+        # --- Step 2: Registration Code ---
+        try:
+            logger.info(f"Sending registration code for Associate ID: {associate_id}")
+            await send_registration_code(page, associate_id, hire.email)
+
+            await update.message.reply_text(
+                f"[OK] Registration code sent to {hire.email}."
             )
+            logger.info(f"Registration code sent for {hire.first_name} {hire.last_name}")
 
-        # Send registration code
-        logger.info(f"Sending registration code for Associate ID: {associate_id}")
-        await send_registration_code(page, associate_id, hire.email)
-
-        # Send final success message
-        success_message = (
-            f"[OK] New hire complete for {hire.first_name} {hire.last_name}.\n"
-            f"Registration code sent to {hire.email}."
-        )
-        await update.message.reply_text(success_message)
-        logger.info(f"Successfully completed new hire: {hire.first_name} {hire.last_name}")
-
-    except Exception as e:
-        logger.error(f"Error confirming new hire: {e}", exc_info=True)
-        error_message = f"[FAIL] Error submitting form:\n{str(e)}"
-        await update.message.reply_text(error_message)
+        except Exception as e:
+            logger.warning(f"Registration code failed: {e}", exc_info=True)
+            await update.message.reply_text(
+                f"Form was saved successfully but registration code failed.\n"
+                f"Associate ID: {associate_id}\n"
+                f"You can send the registration code manually from ADP Security Management."
+            )
 
     finally:
         # Always close browser and clear data

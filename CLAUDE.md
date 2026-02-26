@@ -366,8 +366,8 @@ REMIND_ME_LATER_BUTTON = 'sdf-button[aria-label="Remind me later"]'
 | `src/adp/auth.py` | ✅ Working | Login with retry, popup dismissal |
 | `src/adp/navigation.py` | ✅ Working | New hire, security management, registration codes |
 | `src/adp/base_form.py` | ✅ Working | `fill_mdf_dropdown`, `click_visible_next_button`, etc. |
-| `src/adp/new_hire_form.py` | ⚠️ Mostly working | Dry run fills form; some dropdowns may need fixes (see bugs below) |
-| `src/adp/registration_code.py` | ✅ Implemented | Not yet tested end-to-end |
+| `src/adp/new_hire_form.py` | ✅ Working | Full form fill + Save & Exit tested end-to-end |
+| `src/adp/registration_code.py` | ✅ Working | Tested end-to-end — registration code email delivered successfully |
 | `src/adp/exceptions.py` | ✅ Working | LoginError, FormSubmissionError, NavigationError, etc. |
 | `src/adp/selectors/login.py` | ✅ Verified | Real selectors from ADP |
 | `src/adp/selectors/new_hire.py` | ✅ Verified | Real selectors from ADP (all sections + PRC) |
@@ -384,19 +384,18 @@ REMIND_ME_LATER_BUTTON = 'sdf-button[aria-label="Remind me later"]'
 
 ### 🔧 Known Bugs / In Progress
 
-1. **"Use for Notification" checkbox** — may not be checking properly; currently uses JS `dispatchEvent` workaround
-2. **Employment/Payroll dropdowns may appear empty after run** — Job Title, Worker Category, Benefits Eligibility, Home Department, Compensation Type, Pay Rate may not persist without Save & Exit; needs verification after save
-3. **"Did you start this hire already?" popup** — ADP shows `#showInProgressActiveEmpInfo_Id` if prior in-progress hire exists; needs dismissal logic at start of `fill_new_hire_form()`
-4. **MFA** — ADP may intermittently require SMS MFA on fresh browser sessions; not yet handled in script
+1. **"Did you start this hire already?" popup** — ADP shows `#showInProgressActiveEmpInfo_Id` if prior in-progress hire exists; needs dismissal logic at start of `fill_new_hire_form()`
+2. **MFA** — ADP may intermittently require SMS MFA on fresh browser sessions; not yet handled in script
+3. **Security Management opens in new tab** — `navigate_to_security_management()` must handle new tab via `context.expect_page()` and return the new page
+4. **Dojo framework dynamic IDs** — PRC confirmation popup uses dynamic IDs (e.g., `revit_form_Button_14`); use `span[role="button"]:has(span.dijitButtonText:has-text("Yes"))` instead
 
 ### 🎯 Next Steps
 
-1. Fix remaining dropdown/field persistence bugs (verify after Save & Exit)
-2. Handle "Did you start this hire already?" popup
-3. Live submit test (`dry_run=False`) with real data
-4. End-to-end Telegram test
-5. Implement termination workflow
-6. Add MFA handling (SMS code input)
+1. Handle "Did you start this hire already?" popup
+2. Implement termination workflow
+3. Add MFA handling (SMS code input)
+4. Dry run cleanup (cancel form to prevent in-progress accumulation)
+5. Test with real new hire data
 
 ---
 
@@ -446,6 +445,16 @@ REMIND_ME_LATER_BUTTON = 'sdf-button[aria-label="Remind me later"]'
 - **"Remind me later"** popup may not appear every time — handled with try/except in `auth.py`
 - **"Did you start this hire already?"** popup (`#showInProgressActiveEmpInfo_Id`) appears when ADP detects an in-progress hire — must be dismissed before filling form fields
 - In-progress records from dry runs accumulate — delete them manually from ADP's In-Progress Hires list
+
+### Security Management Portal (New Tab + Dojo Framework)
+- Clicking "Security Management" link opens a **new browser tab** — must handle via `context.expect_page()` and switch to the new page
+- The Security Management portal uses the **Dojo framework** (not SDF/React like the main WFN portal)
+- Dojo element IDs are **dynamic** (e.g., `revit_form_Button_14` may change between sessions) — never rely on numeric IDs
+- For Dojo buttons, use text-based selectors: `span[role="button"]:has(span.dijitButtonText:has-text("Yes"))`
+- For Dojo dialogs, the popup container is `div.revitDialog3.dijitDialog`
+- The PRC search form uses standard HTML inputs (`#empId`, `#formSaveButton`) — these are stable
+- The employee checkbox uses a clickable image: `img[id*="tableGrid"][id*="cells[0]"]`
+- The Issue PRC dropdown uses `#picEmailActions_arrow` — stable selector
 
 ### ADP Sticky Toolbar / Viewport Issues
 - ADP has a sticky bottom toolbar that can overlay form elements

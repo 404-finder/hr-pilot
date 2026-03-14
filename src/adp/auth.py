@@ -6,6 +6,7 @@ Handles login/logout and session management for ADP Workforce Now.
 
 import asyncio
 import logging
+import os
 from typing import Tuple
 
 from playwright.async_api import Browser, Page, async_playwright
@@ -45,11 +46,25 @@ async def login_to_adp(username: str, password: str) -> Tuple[Browser, Page]:
         try:
             logger.info(f"ADP login attempt {attempt}/{max_retries}")
 
-            # Launch browser
+            # Launch browser with anti-detection args
             pw = await async_playwright().start()
-            browser = await pw.chromium.launch(headless=settings.headless)
-            context = await browser.new_context()
+            browser = await pw.chromium.launch(
+                headless=settings.headless,
+                args=["--disable-blink-features=AutomationControlled"],
+            )
+            context = await browser.new_context(
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/131.0.0.0 Safari/537.36"
+                ),
+            )
             page = await context.new_page()
+
+            # Remove navigator.webdriver flag used by sites to detect automation
+            await page.evaluate(
+                "() => { Object.defineProperty(navigator, 'webdriver', { get: () => false }) }"
+            )
 
             # Navigate to login page
             logger.info(f"Navigating to ADP login URL")
@@ -68,6 +83,7 @@ async def login_to_adp(username: str, password: str) -> Tuple[Browser, Page]:
             # Fill password and sign in
             logger.info("Entering password")
             await page.fill(PASSWORD_INPUT, password)
+            os.makedirs("screenshots", exist_ok=True)
             await page.click(SIGN_IN_BUTTON)
 
             # Wait for successful redirect to WFN dashboard

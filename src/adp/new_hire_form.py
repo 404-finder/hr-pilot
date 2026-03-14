@@ -135,7 +135,7 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
 
         # Select company code (from store config)
         company_code = store_config["company_code"]
-        await fill_mdf_dropdown(page, COMPANY_CODE_SELECT, get_search_code(company_code), "LC Texas")
+        await fill_mdf_dropdown(page, COMPANY_CODE_SELECT, get_search_code(company_code), company_code)
         logger.debug(f"Selected company code: {company_code}")
 
         # Select tax ID type (always SSN)
@@ -164,7 +164,7 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         logger.info(f"Assigning onboarding experience: {onboarding_experience}")
         await page.wait_for_selector(ASSIGN_ONBOARDING_BUTTON, timeout=10000)
         await page.click(ASSIGN_ONBOARDING_BUTTON)
-        await fill_mdf_dropdown(page, ONBOARDING_TEMPLATE_SELECT, "Texas", "Texas Experience")
+        await fill_mdf_dropdown(page, ONBOARDING_TEMPLATE_SELECT, get_search_code(onboarding_experience), onboarding_experience)
         await page.click(ASSIGN_EXP_BUTTON)
         await page.click(BACK_BUTTON)
         logger.debug(f"Assigned onboarding experience: {onboarding_experience}")
@@ -172,7 +172,7 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         # Select Worked In State (from store config)
         worked_in_state = store_config["worked_in_state"]
         logger.info(f"Selecting worked in state: {worked_in_state}")
-        await fill_mdf_dropdown(page, WORKED_IN_STATE_SELECT, get_search_code(worked_in_state), "Texas")
+        await fill_mdf_dropdown(page, WORKED_IN_STATE_SELECT, get_search_code(worked_in_state), worked_in_state.split(" - ", 1)[1])
         logger.debug(f"Selected worked in state: {worked_in_state}")
 
         # Reports To (Manager) sub-flow (auto-derived from store number)
@@ -372,8 +372,11 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         logger.info("Filling tax section")
 
         # SUI/SDI Tax Code (from store config)
+        # Use worked_in_state ("TX - Texas" / "CO - Colorado") to derive search code and state name
+        # as sui_sdi_tax_code has inconsistent formatting ("TX -53 -Texas" / "CO -15 - Colorado")
         sui_sdi_tax_code = store_config["sui_sdi_tax_code"]
-        await fill_mdf_dropdown(page, SUI_SDI_TAX_CODE_SELECT, "TX", "Texas")
+        state_name = worked_in_state.split(" - ", 1)[1]
+        await fill_mdf_dropdown(page, SUI_SDI_TAX_CODE_SELECT, get_search_code(worked_in_state), state_name)
         logger.debug(f"Selected SUI/SDI tax code: {sui_sdi_tax_code}")
 
         # Proceed to Direct Deposit section

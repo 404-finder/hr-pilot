@@ -22,10 +22,19 @@ TAX_ID_TYPE = {
 }
 
 STORE_LOCATIONS = {
+    # Texas Stores
     "39101": "Hewitt Drive",
     "39102": "Interstate 35",
     "39103": "South Valley Mills",
     "39104": "North Valley Mills",
+    # Colorado Stores 
+    "33561":"Austin Bluffs Parkway",
+    "33562":"Galley Road",
+    "33563":"Constitution Avenue",
+    "33564":"Cheyenne Meadows Road",
+    "33565":"Mesa Ridge Parkway",
+    "33566":"South Academy Boulevard",
+    "33567":"Stetson Hills Boulevard",
 }
 
 LOCATION_MANAGERS = {
@@ -33,6 +42,13 @@ LOCATION_MANAGERS = {
     "39102": {"name": "Brandon Hudgens", "search": "Hudgens"},
     "39103": {"name": "Josue Gonzalez", "search": "Gonzalez"},
     "39104": {"name": "Mary De Los Rios", "search": "De Los Rios"},
+    "33561": {"name": "Caleb Urrutia", "search": "Urrutia"},
+    "33562": {"name": "Caleb Urrutia", "search": "Urrutia"},
+    "33563": {"name": "Caleb Urrutia", "search": "Urrutia"},
+    "33564": {"name": "Caleb Urrutia", "search": "Urrutia"},
+    "33565": {"name": "Caleb Urrutia", "search": "Urrutia"},
+    "33566": {"name": "Caleb Urrutia", "search": "Urrutia"},
+    "33567": {"name": "Caleb Urrutia", "search": "Urrutia"},
 }
 
 JOB_TITLES = {
@@ -52,11 +68,19 @@ WORK_SCHEDULE = {
 
 # Store prefix config - expandable for future states
 STORE_CONFIG = {
-    "3910": {
+    "3910": { # Texas Stores
         "company_code": "ZKT - LC Texas LLC",
         "worked_in_state": "TX - Texas",
         "sui_sdi_tax_code": "TX -53 -Texas",
         "onboarding_experience": "Texas Experience LC Texas",
+        "benefits_eligibility": "BE - Benefit Eligible Team Members",
+        "measurement_periods": True,
+    },
+    "3356": { # Colorado stores
+        "company_code":  "FND - LC CO LLC",
+        "worked_in_state": "CO - Colorado",
+        "sui_sdi_tax_code": "CO -15 - Colorado",
+        "onboarding_experience": "Colorado Experience LC CO",
         "benefits_eligibility": "BE - Benefit Eligible Team Members",
         "measurement_periods": True,
     }

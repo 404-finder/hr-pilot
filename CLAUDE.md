@@ -101,11 +101,16 @@ hr-pilot/
 ```env
 # Telegram
 TELEGRAM_BOT_TOKEN=your-bot-token-here
-TELEGRAM_ALLOWED_USER_IDS=123456789,987654321
+TELEGRAM_ALLOWED_USER_IDS=USER_ID_1,USER_ID_2
 
-# ADP Credentials
-ADP_USERNAME=your-adp-username
-ADP_PASSWORD=your-adp-password
+# ADP Credentials — one set per Telegram user (increment number for each user)
+ADP_USERNAME_1=username1
+ADP_PASSWORD_1=password1
+TELEGRAM_USER_ID_1=USER_ID_1
+
+ADP_USERNAME_2=username2
+ADP_PASSWORD_2=password2
+TELEGRAM_USER_ID_2=USER_ID_2
 
 # App Settings
 LOG_LEVEL=INFO
@@ -183,7 +188,7 @@ Notes: Employee accepted position at another company.
 
 | Field | Valid Options |
 |---|---|
-| Store Number | 39101 (Hewitt Drive), 39102 (Interstate 35), 39103 (South Valley Mills), 39104 (North Valley Mills) |
+| Store Number | **Texas:** 39101 (Hewitt Drive), 39102 (Interstate 35), 39103 (South Valley Mills), 39104 (North Valley Mills) — **Colorado:** 33561 (Austin Bluffs Pkwy), 33562 (Galley Rd), 33563 (Constitution Ave), 33564 (Cheyenne Meadows Rd), 33565 (Mesa Ridge Pkwy), 33566 (South Academy Blvd), 33567 (Stetson Hills Blvd) |
 | Job Title | assist manager, co-manager, crew, dist manager, gen manager, manager, sal manager |
 | Work Schedule | full time, part time |
 | Pay Type | hourly, salary |
@@ -248,18 +253,29 @@ Central lookup module that maps user-friendly input to ADP dropdown values.
 
 ```python
 STORE_CONFIG = {
-    "3910": {
+    "3910": {  # Texas stores
         "company_code": "ZKT - LC Texas LLC",
         "worked_in_state": "TX - Texas",
         "sui_sdi_tax_code": "TX -53 -Texas",
         "onboarding_experience": "Texas Experience LC Texas",
         "benefits_eligibility": "BE - Benefit Eligible Team Members",
         "measurement_periods": True,
-    }
+    },
+    "3356": {  # Colorado stores
+        "company_code": "FND - LC CO LLC",
+        "worked_in_state": "CO - Colorado",
+        "sui_sdi_tax_code": "CO -15 - Colorado",
+        "onboarding_experience": "Colorado Experience LC CO",
+        "benefits_eligibility": "BE - Benefit Eligible Team Members",
+        "measurement_periods": True,
+    },
 }
 ```
 
-Store number "39104" matches prefix "3910" → returns the config dict.
+Store number "39104" matches prefix "3910" → returns the Texas config dict.
+Store number "33561" matches prefix "3356" → returns the Colorado config dict.
+
+**Colorado store managers:** all 7 stores (33561–33567) map to `{"name": "Caleb Urrutia", "search": "Urrutia"}`.
 
 ### Helper Functions
 
@@ -277,8 +293,10 @@ Store number "39104" matches prefix "3910" → returns the config dict.
 
 ### Login Flow (`src/adp/auth.py`)
 
-`login_to_adp()` → returns `(Browser, Page)` tuple.
+`login_to_adp(username, password)` → returns `(Browser, Page)` tuple.
 
+- Accepts explicit `username: str` and `password: str` — does not read from settings directly
+- Credentials are routed per Telegram user via `settings.get_adp_credentials(telegram_user_id)` in the handler before calling this function
 - Retry logic: 3 attempts with exponential backoff (2s, 4s, 8s)
 - Popup dismissal: "Remind me later" dialog handled with try/except
 - Raises `LoginError` after all retries exhausted
@@ -351,14 +369,14 @@ REMIND_ME_LATER_BUTTON = 'sdf-button[aria-label="Remind me later"]'
 
 ---
 
-## 🚀 Current Implementation Status (Last Updated: 2026-02-25)
+## 🚀 Current Implementation Status (Last Updated: 2026-03-13)
 
 ### ✅ Completed Components
 
 | Component | Status | Notes |
 |---|---|---|
-| `src/config.py` | ✅ Working | Pydantic Settings, SecretStr, user ID whitelist |
-| `src/config_tables.py` | ✅ Working | All dropdown mappings, helper functions, `get_search_code()` |
+| `src/config.py` | ✅ Working | Multi-user ADP credentials via numbered env vars; `get_adp_credentials(user_id)` |
+| `src/config_tables.py` | ✅ Working | Texas + Colorado stores, all dropdown mappings, helper functions |
 | `src/validators.py` | ✅ Working | Case-insensitive validation with friendly error messages |
 | `src/models/new_hire.py` | ✅ Working | Field validators for store, job title, work schedule |
 | `src/models/termination.py` | ✅ Working | Complete with validation |
@@ -463,6 +481,17 @@ REMIND_ME_LATER_BUTTON = 'sdf-button[aria-label="Remind me later"]'
 - This fires a real DOM click event that React picks up, without needing viewport coordinates
 - Use this pattern for any element that reports "outside of the viewport"
 - Note: manually setting `.checked = true` + `dispatchEvent('change')` does NOT work — React ignores it. The native `.click()` fires a proper MouseEvent that React's synthetic event system intercepts.
+
+### pydantic-settings `List[int]` Parsing Bug (CRITICAL)
+- With `extra="allow"` in `model_config`, pydantic-settings v2.4+ tries to `json.loads()` ALL complex-typed fields (including `List[int]`) from env vars before validators run
+- `json.loads("616520367,8620336711")` raises `SettingsError` — the `field_validator` never gets a chance to run
+- **Fix**: declare `telegram_allowed_user_ids: str` (plain string, no JSON decoding), then expose the parsed list via a `@property`:
+  ```python
+  @property
+  def allowed_user_ids(self) -> List[int]:
+      return [int(uid.strip()) for uid in self.telegram_allowed_user_ids.split(",")]
+  ```
+- Use `settings.allowed_user_ids` everywhere (not `settings.telegram_allowed_user_ids`) for the integer list
 
 ### Selectors Strategy
 - Prefer text-based selectors where stable: `button:has-text("Process")`

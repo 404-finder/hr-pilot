@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /start command - welcome message."""
     # Check authorization
-    if update.effective_user.id not in settings.telegram_allowed_user_ids:
+    if update.effective_user.id not in settings.allowed_user_ids:
         await update.message.reply_text("Unauthorized")
         logger.warning(f"Unauthorized access attempt from user {update.effective_user.id}")
         return
@@ -42,7 +42,7 @@ Use /help to see the expected message formats.
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /help command - show usage instructions."""
     # Check authorization
-    if update.effective_user.id not in settings.telegram_allowed_user_ids:
+    if update.effective_user.id not in settings.allowed_user_ids:
         await update.message.reply_text("Unauthorized")
         logger.warning(f"Unauthorized access attempt from user {update.effective_user.id}")
         return
@@ -100,7 +100,7 @@ Notes: Employee accepted position at another company.
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /cancel command - cancel current operation."""
     # Check authorization
-    if update.effective_user.id not in settings.telegram_allowed_user_ids:
+    if update.effective_user.id not in settings.allowed_user_ids:
         await update.message.reply_text("Unauthorized")
         logger.warning(f"Unauthorized access attempt from user {update.effective_user.id}")
         return

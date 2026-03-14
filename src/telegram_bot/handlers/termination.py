@@ -25,7 +25,7 @@ async def handle_termination(update: Update, context: ContextTypes.DEFAULT_TYPE)
         context: Telegram context object.
     """
     # Check authorization
-    if update.effective_user.id not in settings.telegram_allowed_user_ids:
+    if update.effective_user.id not in settings.allowed_user_ids:
         await update.message.reply_text("Unauthorized")
         logger.warning(f"Unauthorized termination attempt from user {update.effective_user.id}")
         return

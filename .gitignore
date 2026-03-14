@@ -64,3 +64,9 @@ doc
 
 # Claude settings
 .claude
+
+# batch files
+*.bat
+
+# Misc
+other 

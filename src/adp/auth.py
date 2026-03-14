@@ -23,10 +23,14 @@ from src.config import settings
 logger = logging.getLogger(__name__)
 
 
-async def login_to_adp() -> Tuple[Browser, Page]:
+async def login_to_adp(username: str, password: str) -> Tuple[Browser, Page]:
     """Log into ADP WFN and return the authenticated browser and page.
 
     Implements retry logic with exponential backoff (3 attempts: 2s, 4s, 8s).
+
+    Args:
+        username: ADP username.
+        password: ADP password (plaintext).
 
     Returns:
         Tuple of (Browser, Page) - authenticated Playwright browser and page.
@@ -54,7 +58,7 @@ async def login_to_adp() -> Tuple[Browser, Page]:
             # Fill username and click next
             logger.info("Entering username")
             await page.wait_for_selector(USERNAME_INPUT, timeout=10000)
-            await page.fill(USERNAME_INPUT, settings.adp_username)
+            await page.fill(USERNAME_INPUT, username)
             await page.click(NEXT_BUTTON)
 
             # Wait for password field to appear
@@ -63,7 +67,7 @@ async def login_to_adp() -> Tuple[Browser, Page]:
 
             # Fill password and sign in
             logger.info("Entering password")
-            await page.fill(PASSWORD_INPUT, settings.adp_password.get_secret_value())
+            await page.fill(PASSWORD_INPUT, password)
             await page.click(SIGN_IN_BUTTON)
 
             # Wait for successful redirect to WFN dashboard

@@ -33,7 +33,7 @@ async def handle_new_hire(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         context: Telegram context object.
     """
     # Check authorization
-    if update.effective_user.id not in settings.telegram_allowed_user_ids:
+    if update.effective_user.id not in settings.allowed_user_ids:
         await update.message.reply_text("Unauthorized")
         logger.warning(f"Unauthorized new hire attempt from user {update.effective_user.id}")
         return
@@ -65,9 +65,20 @@ async def handle_new_hire(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             f"Processing new hire for {hire.first_name} {hire.last_name}..."
         )
 
+        # Get ADP credentials for this Telegram user
+        try:
+            adp_creds = settings.get_adp_credentials(update.effective_user.id)
+        except ValueError as creds_error:
+            await update.message.reply_text(f"[FAIL] {creds_error}")
+            logger.error(f"Credentials lookup failed: {creds_error}")
+            return
+
         # Log into ADP
         logger.info("Logging into ADP")
-        browser, page = await login_to_adp()
+        browser, page = await login_to_adp(
+            username=adp_creds.username,
+            password=adp_creds.password.get_secret_value(),
+        )
 
         # Navigate to new hire form
         logger.info("Navigating to new hire form")
@@ -163,7 +174,7 @@ async def handle_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         context: Telegram context object.
     """
     # Check authorization
-    if update.effective_user.id not in settings.telegram_allowed_user_ids:
+    if update.effective_user.id not in settings.allowed_user_ids:
         await update.message.reply_text("Unauthorized")
         return
 
@@ -254,7 +265,7 @@ async def handle_cancel_hire(update: Update, context: ContextTypes.DEFAULT_TYPE)
         context: Telegram context object.
     """
     # Check authorization
-    if update.effective_user.id not in settings.telegram_allowed_user_ids:
+    if update.effective_user.id not in settings.allowed_user_ids:
         await update.message.reply_text("Unauthorized")
         return
 

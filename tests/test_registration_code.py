@@ -62,7 +62,11 @@ async def main():
     try:
         # Step 1: Login
         print("\n[1] Logging into ADP...")
-        browser, page = await login_to_adp()
+        creds = settings.get_adp_credentials(settings.telegram_allowed_user_ids[0])
+        browser, page = await login_to_adp(
+            username=creds.username,
+            password=creds.password.get_secret_value(),
+        )
         print("[OK] Login successful!")
 
         # Wait for dashboard to fully load before navigating

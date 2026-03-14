@@ -38,28 +38,28 @@ async def navigate_to_new_hire(page: Page) -> None:
     try:
         logger.info("Navigating to New Hire form")
 
-        # Wait for dashboard to fully load (ADP is slow)
+        # Wait for dashboard to fully load (ADP is slow; VPS latency requires extra time)
         logger.info("Waiting for dashboard to fully load")
-        await page.wait_for_timeout(15000)
+        await page.wait_for_timeout(30000)
 
         # Click Process menu
         logger.info("Clicking Process menu")
-        await page.wait_for_selector(PROCESS_MENU_BUTTON, timeout=30000)
+        await page.wait_for_selector(PROCESS_MENU_BUTTON, timeout=60000)
         await page.click(PROCESS_MENU_BUTTON)
 
         # Click Hire/Rehire link
         logger.info("Clicking Hire/Rehire link")
-        await page.wait_for_selector(HIRE_REHIRE_LINK, timeout=10000)
+        await page.wait_for_selector(HIRE_REHIRE_LINK, timeout=20000)
         await page.click(HIRE_REHIRE_LINK)
 
         # Click Go to Hire button
         logger.info("Clicking Go to Hire button")
-        await page.wait_for_selector(GO_TO_HIRE_BUTTON, timeout=10000)
+        await page.wait_for_selector(GO_TO_HIRE_BUTTON, timeout=20000)
         await page.click(GO_TO_HIRE_BUTTON)
 
         # Click HR PR New Hires card
         logger.info("Clicking HR PR New Hires card")
-        await page.wait_for_selector(HR_PR_NEW_HIRES_CARD, timeout=10000)
+        await page.wait_for_selector(HR_PR_NEW_HIRES_CARD, timeout=20000)
         await page.click(HR_PR_NEW_HIRES_CARD)
 
         logger.info("Successfully navigated to New Hire form")
@@ -92,23 +92,23 @@ async def navigate_to_security_management(page: Page) -> Page:
 
         # Click Setup menu
         logger.info("Clicking Setup menu")
-        await page.wait_for_selector(SETUP_MENU_BUTTON, timeout=10000)
+        await page.wait_for_selector(SETUP_MENU_BUTTON, timeout=20000)
         await page.click(SETUP_MENU_BUTTON)
 
         # Click Security Management — may open in a new tab
         logger.info("Clicking Security Management link")
-        await page.wait_for_selector(SECURITY_MANAGEMENT_LINK, timeout=10000)
+        await page.wait_for_selector(SECURITY_MANAGEMENT_LINK, timeout=20000)
 
         new_page = None
         try:
-            async with page.context.expect_page(timeout=5000) as new_page_info:
+            async with page.context.expect_page(timeout=10000) as new_page_info:
                 await page.click(SECURITY_MANAGEMENT_LINK)
             new_page = await new_page_info.value
         except Exception:
             logger.info("No new tab detected for Security Management")
 
         if new_page is not None:
-            await new_page.wait_for_load_state("load", timeout=30000)
+            await new_page.wait_for_load_state("load", timeout=60000)
             logger.info("Security Management opened in new tab -- switched to new tab")
             return new_page
 
@@ -138,17 +138,17 @@ async def navigate_to_registration_codes(page: Page) -> None:
 
         # Hover over People menu
         logger.info("Hovering over People menu")
-        await page.wait_for_selector(PEOPLE_MENU, timeout=10000)
+        await page.wait_for_selector(PEOPLE_MENU, timeout=20000)
         await page.hover(PEOPLE_MENU)
 
         # Click Personal Registration Codes link
         logger.info("Clicking Personal Registration Codes link")
-        await page.wait_for_selector(PERSONAL_REGISTRATION_CODES_LINK, timeout=10000)
+        await page.wait_for_selector(PERSONAL_REGISTRATION_CODES_LINK, timeout=20000)
         await page.click(PERSONAL_REGISTRATION_CODES_LINK)
 
         # Wait for search form to appear
         logger.info("Waiting for search form")
-        await page.wait_for_selector('#empId', timeout=10000)
+        await page.wait_for_selector('#empId', timeout=20000)
 
         logger.info("Successfully navigated to Personal Registration Codes")
 

@@ -421,8 +421,30 @@ async def handle_mfa_code(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await code_input.click()
         await code_input.fill(code)
 
-        # Click the Submit button
-        await page.locator('button:has-text("Submit")').click()
+        # Debug: screenshot + page source before attempting submit
+        await page.screenshot(path="screenshots/mfa_pre_submit_debug.png")
+        logger.info("MFA pre-submit screenshot saved")
+        content = await page.content()
+        with open("screenshots/mfa_page_source.html", "w", encoding="utf-8") as f:
+            f.write(content)
+        logger.info("MFA page source saved to screenshots/mfa_page_source.html")
+
+        # Try progressively broader selectors for the submit element
+        submitted = False
+        for locator in [
+            page.get_by_role("button", name="Submit"),
+            page.locator("[type='submit']"),
+            page.locator("text=Submit"),
+        ]:
+            try:
+                await locator.click(timeout=5000)
+                submitted = True
+                logger.info(f"Submit clicked via locator: {locator}")
+                break
+            except Exception:
+                continue
+        if not submitted:
+            raise Exception("Could not find Submit button — check screenshots/mfa_pre_submit_debug.png")
 
         # Wait for dashboard redirect after successful verification
         logger.info("Waiting for dashboard after MFA verification")

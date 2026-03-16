@@ -416,18 +416,13 @@ async def handle_mfa_code(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     try:
         logger.info("Received MFA code — submitting to ADP")
 
-        # Fill in the verification code.
-        # Selectors are placeholders — update after inspecting screenshots/mfa_code_entry.png.
-        code_input = page.locator(
-            'input[autocomplete="one-time-code"], input[type="tel"], input[type="text"]'
-        ).first
+        # Fill in the verification code using the Passcode label.
+        code_input = page.get_by_label("Passcode")
         await code_input.click()
         await code_input.fill(code)
 
-        # Click the verify/submit button
-        await page.locator(
-            'button:has-text("Verify"), button:has-text("Submit"), button:has-text("Continue")'
-        ).first.click()
+        # Click the Submit button
+        await page.locator('button:has-text("Submit")').click()
 
         # Wait for dashboard redirect after successful verification
         logger.info("Waiting for dashboard after MFA verification")

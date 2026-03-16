@@ -22,6 +22,73 @@ from src.validators import validate_new_hire_input
 logger = logging.getLogger(__name__)
 
 
+async def _run_new_hire_flow(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    browser,
+    page,
+    hire,
+) -> None:
+    """Navigate ADP and fill the new hire form in dry-run mode, then prompt for confirmation.
+
+    Shared by both the non-MFA path (called directly from handle_new_hire)
+    and the MFA path (called from handle_mfa_code after code verification).
+
+    Args:
+        update: Telegram update object.
+        context: Telegram context object.
+        browser: Authenticated Playwright browser.
+        page: Authenticated ADP page.
+        hire: Validated NewHire model instance.
+    """
+    # Navigate to new hire form
+    logger.info("Navigating to new hire form")
+    await navigate_to_new_hire(page)
+
+    # Fill new hire form in DRY RUN mode
+    logger.info("Filling new hire form (dry run mode)")
+    result = await fill_new_hire_form(page, hire, dry_run=True)
+
+    # Send screenshot to user for review
+    with open(result["screenshot_path"], 'rb') as screenshot:
+        await update.message.reply_photo(
+            photo=screenshot,
+            caption=f"[OK] Form filled for {hire.first_name} {hire.last_name}"
+        )
+
+    # Surface any warnings (e.g. manager not found)
+    if result.get("warnings"):
+        warning_text = "[WARNING] The following issues occurred:\n" + "\n".join(
+            f"  - {w}" for w in result["warnings"]
+        )
+        await update.message.reply_text(warning_text)
+
+    # Send confirmation prompt
+    await update.message.reply_text(
+        "Review the screenshot above.\n\n"
+        "Reply /confirm to submit or /cancel to discard."
+    )
+
+    # Store data in context for /confirm to use
+    context.user_data["pending_hire"] = True
+    context.user_data["browser"] = browser
+    context.user_data["page"] = page
+    context.user_data["hire"] = hire
+    context.user_data["associate_id"] = result["associate_id"]
+
+    # Schedule auto-cancel after 5 minutes
+    if context.job_queue:
+        context.job_queue.run_once(
+            auto_cancel_hire,
+            300,  # 5 minutes
+            chat_id=update.effective_chat.id,
+            user_id=update.effective_user.id,
+            data={"user_id": update.effective_user.id}
+        )
+
+    logger.info(f"Waiting for confirmation for: {hire.first_name} {hire.last_name}")
+
+
 async def handle_new_hire(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /newhire command with dry-run preview.
 
@@ -75,58 +142,37 @@ async def handle_new_hire(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
         # Log into ADP
         logger.info("Logging into ADP")
-        browser, page = await login_to_adp(
+        browser, page, mfa_required = await login_to_adp(
             username=adp_creds.username,
             password=adp_creds.password.get_secret_value(),
         )
 
-        # Navigate to new hire form
-        logger.info("Navigating to new hire form")
-        await navigate_to_new_hire(page)
+        if mfa_required:
+            # Store state and wait for user to supply the MFA code
+            context.user_data["awaiting_mfa_code"] = True
+            context.user_data["browser"] = browser
+            context.user_data["page"] = page
+            context.user_data["hire"] = hire
 
-        # Fill new hire form in DRY RUN mode
-        logger.info("Filling new hire form (dry run mode)")
-        result = await fill_new_hire_form(page, hire, dry_run=True)
+            if context.job_queue:
+                context.job_queue.run_once(
+                    auto_cancel_mfa,
+                    180,  # 3 minutes
+                    chat_id=update.effective_chat.id,
+                    user_id=update.effective_user.id,
+                    data={"user_id": update.effective_user.id}
+                )
 
-        # Send screenshot to user for review
-        with open(result["screenshot_path"], 'rb') as screenshot:
-            await update.message.reply_photo(
-                photo=screenshot,
-                caption=f"[OK] Form filled for {hire.first_name} {hire.last_name}"
+            await update.message.reply_text(
+                "ADP requires identity verification.\n"
+                "A text message has been sent to your phone.\n\n"
+                "Please reply with the verification code."
             )
+            logger.info("MFA required — waiting for user to supply code")
+            return
 
-        # Surface any warnings (e.g. manager not found)
-        if result.get("warnings"):
-            warning_text = "[WARNING] The following issues occurred:\n" + "\n".join(
-                f"  - {w}" for w in result["warnings"]
-            )
-            await update.message.reply_text(warning_text)
-
-        # Send confirmation prompt
-        confirmation_message = (
-            f"Review the screenshot above.\n\n"
-            f"Reply /confirm to submit or /cancel to discard."
-        )
-        await update.message.reply_text(confirmation_message)
-
-        # Store data in context for /confirm to use
-        context.user_data["pending_hire"] = True
-        context.user_data["browser"] = browser
-        context.user_data["page"] = page
-        context.user_data["hire"] = hire
-        context.user_data["associate_id"] = result["associate_id"]
-
-        # Schedule auto-cancel after 5 minutes
-        if context.job_queue:
-            context.job_queue.run_once(
-                auto_cancel_hire,
-                300,  # 5 minutes
-                chat_id=update.effective_chat.id,
-                user_id=update.effective_user.id,
-                data={"user_id": update.effective_user.id}
-            )
-
-        logger.info(f"Waiting for confirmation for: {hire.first_name} {hire.last_name}")
+        # No MFA — proceed directly
+        await _run_new_hire_flow(update, context, browser, page, hire)
 
     except ValueError as e:
         # Parsing error
@@ -338,3 +384,133 @@ async def auto_cancel_hire(context: ContextTypes.DEFAULT_TYPE) -> None:
 
     except Exception as e:
         logger.error(f"Error during auto-cancel: {e}", exc_info=True)
+
+
+async def handle_mfa_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle the MFA verification code sent by the user as a plain text message.
+
+    Only acts when context.user_data["awaiting_mfa_code"] is set (i.e. ADP
+    presented an MFA challenge during the current /newhire flow). All other
+    plain-text messages are silently ignored.
+
+    Args:
+        update: Telegram update object.
+        context: Telegram context object.
+    """
+    # Ignore if we are not waiting for an MFA code
+    if not context.user_data.get("awaiting_mfa_code"):
+        return
+
+    # Check authorization
+    if update.effective_user.id not in settings.allowed_user_ids:
+        return
+
+    code = update.message.text.strip()
+    browser = context.user_data.get("browser")
+    page = context.user_data.get("page")
+    hire = context.user_data.get("hire")
+
+    # Clear the flag immediately to prevent re-entry on duplicate messages
+    context.user_data.pop("awaiting_mfa_code", None)
+
+    try:
+        logger.info("Received MFA code — submitting to ADP")
+
+        # Fill in the verification code.
+        # Selectors are placeholders — update after inspecting screenshots/mfa_code_entry.png.
+        code_input = page.locator(
+            'input[autocomplete="one-time-code"], input[type="tel"], input[type="text"]'
+        ).first
+        await code_input.click()
+        await code_input.fill(code)
+
+        # Click the verify/submit button
+        await page.locator(
+            'button:has-text("Verify"), button:has-text("Submit"), button:has-text("Continue")'
+        ).first.click()
+
+        # Wait for dashboard redirect after successful verification
+        logger.info("Waiting for dashboard after MFA verification")
+        await page.wait_for_url("**/workforcenow.adp.com/**", timeout=30000)
+        await page.wait_for_load_state("domcontentloaded")
+        logger.info(f"Post-MFA URL: {page.url}")
+
+        # Dismiss "Remind me later" popup if it appears
+        try:
+            await page.wait_for_selector(
+                'sdf-button[aria-label="Remind me later"]', timeout=5000
+            )
+            await page.click('sdf-button[aria-label="Remind me later"]')
+            logger.info("Dismissed post-MFA popup")
+        except Exception:
+            pass
+
+        await update.message.reply_text(
+            "Identity verified. Continuing with new hire form..."
+        )
+        logger.info("MFA verified — proceeding with new hire flow")
+
+        # Continue with the normal new hire flow
+        await _run_new_hire_flow(update, context, browser, page, hire)
+
+    except Exception as e:
+        logger.error(f"MFA verification failed: {e}", exc_info=True)
+
+        try:
+            await capture_screenshot(page, "mfa_verification_error")
+        except Exception:
+            pass
+
+        await update.message.reply_text(
+            f"[FAIL] MFA verification failed:\n{str(e)}\n\n"
+            "Please try again with /newhire."
+        )
+
+        if browser:
+            try:
+                await browser.close()
+            except Exception:
+                pass
+
+        context.user_data.pop("browser", None)
+        context.user_data.pop("page", None)
+        context.user_data.pop("hire", None)
+
+
+async def auto_cancel_mfa(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Auto-cancel MFA verification after 3 minutes if no code is received.
+
+    Called by job_queue 3 minutes after ADP triggers MFA.
+
+    Args:
+        context: Telegram context object.
+    """
+    job = context.job
+    user_id = job.data.get("user_id")
+
+    # Already completed or cancelled
+    if not context.user_data.get("awaiting_mfa_code"):
+        return
+
+    try:
+        browser = context.user_data.get("browser")
+        if browser:
+            await browser.close()
+            logger.info("Browser closed after MFA timeout")
+
+        context.user_data.pop("awaiting_mfa_code", None)
+        context.user_data.pop("browser", None)
+        context.user_data.pop("page", None)
+        context.user_data.pop("hire", None)
+
+        await context.bot.send_message(
+            chat_id=job.chat_id,
+            text=(
+                "[WARNING] MFA verification timed out after 3 minutes. "
+                "Please try again with /newhire."
+            )
+        )
+        logger.info(f"Auto-cancelled MFA for user {user_id} due to timeout")
+
+    except Exception as e:
+        logger.error(f"Error during MFA auto-cancel: {e}", exc_info=True)

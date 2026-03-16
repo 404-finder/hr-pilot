@@ -78,18 +78,24 @@ WebGLRenderingContext.prototype.getParameter = function(param) {
 """
 
 
-async def login_to_adp(username: str, password: str) -> Tuple[Browser, Page]:
-    """Log into ADP WFN and return the authenticated browser and page.
+async def login_to_adp(username: str, password: str) -> Tuple[Browser, Page, bool]:
+    """Log into ADP WFN and return the authenticated browser, page, and MFA flag.
 
     Implements retry logic with exponential backoff (3 attempts: 2s, 4s, 8s).
     Uses comprehensive browser stealth to avoid headless detection by ADP.
+
+    If ADP presents a "Verify Your Identity" MFA page, triggers the SMS code
+    send and returns with mfa_required=True. The page is left on the code entry
+    screen; caller must collect the code from the user, fill it in, and submit.
 
     Args:
         username: ADP username.
         password: ADP password (plaintext).
 
     Returns:
-        Tuple of (Browser, Page) - authenticated Playwright browser and page.
+        Tuple of (Browser, Page, mfa_required):
+            - mfa_required=False: page is on the WFN dashboard, ready to navigate.
+            - mfa_required=True: page is on the MFA code entry screen.
 
     Raises:
         LoginError: If login fails after max retries.
@@ -147,8 +153,24 @@ async def login_to_adp(username: str, password: str) -> Tuple[Browser, Page]:
             os.makedirs("screenshots", exist_ok=True)
             await page.click(SIGN_IN_BUTTON)
 
-            # Wait for successful redirect to WFN dashboard
-            logger.info("Waiting for redirect to Workforce Now")
+            # Check for MFA before waiting for the dashboard
+            await page.wait_for_timeout(5000)
+            mfa_detected = await page.locator("text=Verify Your Identity").is_visible()
+
+            if mfa_detected:
+                logger.info("MFA page detected — triggering SMS code")
+                await page.locator("text=Send me a text message").click()
+                await page.wait_for_timeout(2000)
+
+                # Screenshot so we can identify code-entry selectors later
+                os.makedirs("screenshots", exist_ok=True)
+                await page.screenshot(path="screenshots/mfa_code_entry.png")
+                logger.info("MFA code entry screenshot saved to screenshots/mfa_code_entry.png")
+
+                return browser, page, True
+
+            # Normal path — wait for dashboard URL
+            logger.info("No MFA detected — waiting for dashboard redirect")
             await page.wait_for_url("**/workforcenow.adp.com/**", timeout=30000)
 
             # Wait for dashboard DOM to be ready before proceeding
@@ -165,7 +187,7 @@ async def login_to_adp(username: str, password: str) -> Tuple[Browser, Page]:
                 logger.info("No popup detected")
 
             logger.info("Successfully logged into ADP")
-            return browser, page
+            return browser, page, False
 
         except Exception as e:
             logger.error(f"Login attempt {attempt} failed: {e}")

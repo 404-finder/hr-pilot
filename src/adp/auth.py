@@ -155,7 +155,7 @@ async def login_to_adp(username: str, password: str) -> Tuple[Browser, Page, boo
 
             # Check for MFA before waiting for the dashboard
             await page.wait_for_timeout(5000)
-            mfa_detected = await page.locator("text=Verify Your Identity").is_visible()
+            mfa_detected = await page.locator("h1:has-text('Verify Your Identity')").is_visible()
 
             if mfa_detected:
                 logger.info("MFA page detected — triggering SMS code")

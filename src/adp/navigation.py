@@ -8,7 +8,6 @@ import logging
 
 from playwright.async_api import Page
 
-from src.adp.base_form import click_and_wait
 from src.adp.exceptions import NavigationError
 from src.adp.selectors.new_hire import (
     GO_TO_HIRE_BUTTON,
@@ -20,8 +19,53 @@ from src.adp.selectors.new_hire import (
     SECURITY_MANAGEMENT_LINK,
     SETUP_MENU_BUTTON,
 )
+from src.utils.screenshots import capture_screenshot
 
 logger = logging.getLogger(__name__)
+
+
+async def _wait_for_process_button(page: Page) -> None:
+    """Wait for the Process menu button with retry on failure.
+
+    If the button isn't found after the initial timeout, captures a diagnostic
+    screenshot, reloads the page, and tries once more.
+
+    Args:
+        page: Authenticated ADP page on the dashboard.
+
+    Raises:
+        NavigationError: If button not found after retry.
+    """
+    try:
+        await page.wait_for_selector(PROCESS_MENU_BUTTON, timeout=60000)
+        return
+    except Exception:
+        # Capture diagnostic screenshot to see what page we're actually on
+        logger.warning(
+            f"Process button not found. URL: {page.url} -- "
+            "capturing diagnostic screenshot and retrying"
+        )
+        try:
+            await capture_screenshot(page, "nav_debug_process_not_found")
+        except Exception as ss_err:
+            logger.warning(f"Diagnostic screenshot failed: {ss_err}")
+
+        # Reload and retry once
+        logger.info("Reloading page and retrying Process button wait")
+        await page.reload(wait_until="domcontentloaded")
+        await page.wait_for_timeout(15000)
+
+        try:
+            await page.wait_for_selector(PROCESS_MENU_BUTTON, timeout=60000)
+        except Exception as retry_err:
+            try:
+                await capture_screenshot(page, "nav_debug_process_retry_failed")
+            except Exception:
+                pass
+            raise NavigationError(
+                f"Process button not found after reload. URL: {page.url}. "
+                f"Error: {retry_err}"
+            )
 
 
 async def navigate_to_new_hire(page: Page) -> None:
@@ -38,13 +82,16 @@ async def navigate_to_new_hire(page: Page) -> None:
     try:
         logger.info("Navigating to New Hire form")
 
-        # Wait for dashboard to fully load (ADP is slow; VPS latency requires extra time)
-        logger.info("Waiting for dashboard to fully load")
-        await page.wait_for_timeout(30000)
+        # Wait for dashboard to fully load
+        logger.info("Waiting for dashboard to load")
+        await page.wait_for_load_state("domcontentloaded")
+        await page.wait_for_timeout(15000)
 
-        # Click Process menu
+        logger.info(f"Dashboard URL: {page.url}")
+
+        # Click Process menu (with retry on failure)
         logger.info("Clicking Process menu")
-        await page.wait_for_selector(PROCESS_MENU_BUTTON, timeout=60000)
+        await _wait_for_process_button(page)
         await page.click(PROCESS_MENU_BUTTON)
 
         # Click Hire/Rehire link

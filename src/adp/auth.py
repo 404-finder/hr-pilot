@@ -23,11 +23,66 @@ from src.config import settings
 
 logger = logging.getLogger(__name__)
 
+# Comprehensive stealth script injected BEFORE any page JS on every navigation.
+# context.add_init_script() persists across navigations — unlike page.evaluate()
+# which only runs on the current page context and is lost on goto().
+STEALTH_JS = """
+// 1. navigator.webdriver — primary headless detection vector
+Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+
+// 2. navigator.plugins — headless has 0 plugins, real Chrome has 3+
+Object.defineProperty(navigator, 'plugins', {
+    get: () => {
+        const arr = [
+            { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer',
+              description: 'Portable Document Format', length: 1 },
+            { name: 'Chrome PDF Viewer',
+              filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai',
+              description: '', length: 1 },
+            { name: 'Native Client', filename: 'internal-nacl-plugin',
+              description: '', length: 1 },
+        ];
+        arr.item = (i) => arr[i];
+        arr.namedItem = (n) => arr.find(p => p.name === n);
+        arr.refresh = () => {};
+        return arr;
+    }
+});
+
+// 3. navigator.languages — ensure consistent en-US
+Object.defineProperty(navigator, 'languages', {
+    get: () => ['en-US', 'en']
+});
+
+// 4. chrome.runtime — missing in headless, present in real Chrome
+if (!window.chrome) window.chrome = {};
+if (!window.chrome.runtime) window.chrome.runtime = {};
+
+// 5. permissions.query — headless returns different defaults for notifications
+const originalQuery = window.navigator.permissions.query.bind(
+    window.navigator.permissions
+);
+window.navigator.permissions.query = (params) => (
+    params.name === 'notifications'
+        ? Promise.resolve({ state: Notification.permission })
+        : originalQuery(params)
+);
+
+// 6. WebGL renderer — headless shows "Google SwiftShader" which is a dead giveaway
+const getParam = WebGLRenderingContext.prototype.getParameter;
+WebGLRenderingContext.prototype.getParameter = function(param) {
+    if (param === 37445) return 'Intel Inc.';
+    if (param === 37446) return 'Intel Iris OpenGL Engine';
+    return getParam.call(this, param);
+};
+"""
+
 
 async def login_to_adp(username: str, password: str) -> Tuple[Browser, Page]:
     """Log into ADP WFN and return the authenticated browser and page.
 
     Implements retry logic with exponential backoff (3 attempts: 2s, 4s, 8s).
+    Uses comprehensive browser stealth to avoid headless detection by ADP.
 
     Args:
         username: ADP username.
@@ -50,7 +105,10 @@ async def login_to_adp(username: str, password: str) -> Tuple[Browser, Page]:
             pw = await async_playwright().start()
             browser = await pw.chromium.launch(
                 headless=settings.headless,
-                args=["--disable-blink-features=AutomationControlled"],
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--disable-features=IsolateOrigins,site-per-process",
+                ],
             )
             context = await browser.new_context(
                 user_agent=(
@@ -58,16 +116,19 @@ async def login_to_adp(username: str, password: str) -> Tuple[Browser, Page]:
                     "AppleWebKit/537.36 (KHTML, like Gecko) "
                     "Chrome/131.0.0.0 Safari/537.36"
                 ),
+                viewport={"width": 1920, "height": 1080},
+                locale="en-US",
             )
+
+            # Inject stealth overrides BEFORE any page JS runs.
+            # This persists across all navigations in this context — unlike
+            # page.evaluate() which only affects the current page context.
+            await context.add_init_script(STEALTH_JS)
+
             page = await context.new_page()
 
-            # Remove navigator.webdriver flag used by sites to detect automation
-            await page.evaluate(
-                "() => { Object.defineProperty(navigator, 'webdriver', { get: () => false }) }"
-            )
-
             # Navigate to login page
-            logger.info(f"Navigating to ADP login URL")
+            logger.info("Navigating to ADP login URL")
             await page.goto(settings.adp_login_url, timeout=30000)
 
             # Fill username and click next
@@ -89,6 +150,10 @@ async def login_to_adp(username: str, password: str) -> Tuple[Browser, Page]:
             # Wait for successful redirect to WFN dashboard
             logger.info("Waiting for redirect to Workforce Now")
             await page.wait_for_url("**/workforcenow.adp.com/**", timeout=30000)
+
+            # Wait for dashboard DOM to be ready before proceeding
+            await page.wait_for_load_state("domcontentloaded")
+            logger.info(f"Post-login URL: {page.url}")
 
             # Try to dismiss popup if it appears
             try:

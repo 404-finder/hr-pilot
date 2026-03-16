@@ -369,7 +369,7 @@ REMIND_ME_LATER_BUTTON = 'sdf-button[aria-label="Remind me later"]'
 
 ---
 
-## 🚀 Current Implementation Status (Last Updated: 2026-03-13)
+## 🚀 Current Implementation Status (Last Updated: 2026-03-14)
 
 ### ✅ Completed Components
 
@@ -381,8 +381,8 @@ REMIND_ME_LATER_BUTTON = 'sdf-button[aria-label="Remind me later"]'
 | `src/models/new_hire.py` | ✅ Working | Field validators for store, job title, work schedule |
 | `src/models/termination.py` | ✅ Working | Complete with validation |
 | `src/models/base.py` | ✅ Working | ActionType, ActionStatus enums |
-| `src/adp/auth.py` | ✅ Working | Login with retry, popup dismissal |
-| `src/adp/navigation.py` | ✅ Working | New hire, security management, registration codes |
+| `src/adp/auth.py` | ✅ Working | Login with retry, popup dismissal, headless detection avoidance |
+| `src/adp/navigation.py` | ✅ Working | New hire, security management, registration codes; timeouts tuned for VPS |
 | `src/adp/base_form.py` | ✅ Working | `fill_mdf_dropdown`, `click_visible_next_button`, etc. |
 | `src/adp/new_hire_form.py` | ✅ Working | Full form fill + Save & Exit tested end-to-end |
 | `src/adp/registration_code.py` | ✅ Working | Tested end-to-end — registration code email delivered successfully |
@@ -429,8 +429,10 @@ REMIND_ME_LATER_BUTTON = 'sdf-button[aria-label="Remind me later"]'
 - Use `[OK]` and `[FAIL]` instead for Windows cp1252 compatibility
 
 ### ADP Navigation Timing
-- Use 15000ms (15s) initial wait after login before interacting with the dashboard
-- Use 30000ms (30s) `wait_for_selector` timeout for the Process menu button
+- Use 30000ms (30s) initial wait after login before interacting with the dashboard (VPS requires more than local dev's 15s)
+- Use 60000ms (60s) `wait_for_selector` timeout for the Process menu button
+- Use 20000ms (20s) for all subsequent nav selectors (Hire/Rehire, Go to Hire, New Hires card, Setup menu, Security Management link, People menu, PRC link, search form)
+- New tab detection timeout: 10000ms; new tab load state: 60000ms
 - Add `wait_for_timeout(3000)` after each section Next button click — ADP renders all sections simultaneously in the DOM; the next section is hidden until the transition completes
 - Dashboard load time is inconsistent — navigation may intermittently fail; re-run
 
@@ -463,6 +465,15 @@ REMIND_ME_LATER_BUTTON = 'sdf-button[aria-label="Remind me later"]'
 - **"Remind me later"** popup may not appear every time — handled with try/except in `auth.py`
 - **"Did you start this hire already?"** popup (`#showInProgressActiveEmpInfo_Id`) appears when ADP detects an in-progress hire — must be dismissed before filling form fields
 - In-progress records from dry runs accumulate — delete them manually from ADP's In-Progress Hires list
+
+### Headless Browser Detection (VPS / Production)
+- ADP detects headless Chromium and serves a different login page layout (username + password on one page instead of the two-step flow), causing login to fail
+- **Fix applied in `auth.py`** — three changes together resolve this:
+  1. Launch arg `--disable-blink-features=AutomationControlled` — removes the automation flag exposed via `window.chrome.automation`
+  2. Realistic user agent: `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36` — headless Chromium default UA contains `"HeadlessChrome"` which is trivially detectable
+  3. `page.evaluate("() => { Object.defineProperty(navigator, 'webdriver', { get: () => false }) }")` — overrides `navigator.webdriver` (which is `true` by default under WebDriver) before any page content loads
+- Playwright 1.40+ uses `--headless=new` mode by default — no explicit flag needed
+- These changes are verified working on VPS with `HEADLESS=true`
 
 ### Security Management Portal (New Tab + Dojo Framework)
 - Clicking "Security Management" link opens a **new browser tab** — must handle via `context.expect_page()` and switch to the new page
@@ -521,6 +532,8 @@ REMIND_ME_LATER_BUTTON = 'sdf-button[aria-label="Remind me later"]'
 | Reports To slider blocks clicks | Press `Escape` to close slider if search fails |
 | "Did you start this hire already?" popup | Delete in-progress record from ADP, or add dismissal code |
 | MFA prompt blocking login | Complete MFA manually; will need script handling for production |
+| Login fails in headless mode on VPS | ADP detects automation; see Headless Browser Detection section — `--disable-blink-features=AutomationControlled`, custom user agent, and `navigator.webdriver=false` fix this |
+| Navigation times out on VPS | VPS latency is higher than local dev; timeouts in `navigation.py` already tuned (30s dashboard wait, 60s Process button, 20s others) |
 
 ---
 

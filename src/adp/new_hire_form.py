@@ -106,6 +106,10 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         # VPS latency means fields can be visible but not yet interactive.
         await page.wait_for_timeout(5000)
 
+        # Diagnostic screenshot to see form state before first fill attempt
+        await page.screenshot(path="screenshots/form_pre_fill_debug.png", timeout=60000)
+        logger.info(f"Pre-fill screenshot saved. URL: {page.url}")
+
         # Fill basic information — first field gets longer timeout because ADP
         # can re-render the form DOM after initial visibility (especially post-MFA).
         await fill_text_field(page, FIRST_NAME_INPUT, hire.first_name, timeout=30000)

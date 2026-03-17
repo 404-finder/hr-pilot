@@ -462,13 +462,14 @@ async def handle_mfa_code(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         except Exception:
             pass
 
+        # Dismiss Pendo overlay if it appeared after MFA
+        from src.adp.base_form import dismiss_pendo
+        await dismiss_pendo(page)
+
         await update.message.reply_text(
             "Identity verified. Continuing with new hire form..."
         )
         logger.info("MFA verified — proceeding with new hire flow")
-
-        # Continue with the normal new hire flow
-        await _run_new_hire_flow(update, context, browser, page, hire)
 
     except Exception as e:
         logger.error(f"MFA verification failed: {e}", exc_info=True)
@@ -481,6 +482,34 @@ async def handle_mfa_code(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await update.message.reply_text(
             f"[FAIL] MFA verification failed:\n{str(e)}\n\n"
             "Please try again with /newhire."
+        )
+
+        if browser:
+            try:
+                await browser.close()
+            except Exception:
+                pass
+
+        context.user_data.pop("browser", None)
+        context.user_data.pop("page", None)
+        context.user_data.pop("hire", None)
+        return
+
+    # MFA succeeded — continue with new hire flow (separate try/except so
+    # errors here are reported accurately, not as "MFA verification failed")
+    try:
+        await _run_new_hire_flow(update, context, browser, page, hire)
+
+    except Exception as e:
+        logger.error(f"Error processing new hire after MFA: {e}", exc_info=True)
+
+        try:
+            await capture_screenshot(page, "post_mfa_new_hire_error")
+        except Exception:
+            pass
+
+        await update.message.reply_text(
+            f"[FAIL] Error processing new hire:\n{str(e)}"
         )
 
         if browser:

@@ -293,12 +293,16 @@ Store number "33561" matches prefix "3356" → returns the Colorado config dict.
 
 ### Login Flow (`src/adp/auth.py`)
 
-`login_to_adp(username, password)` → returns `(Browser, Page)` tuple.
+`login_to_adp(username, password)` → returns `(Browser, Page, bool)` tuple.
 
+- Third return value = `mfa_required`: `True` if ADP presented MFA challenge, `False` if login completed normally
 - Accepts explicit `username: str` and `password: str` — does not read from settings directly
 - Credentials are routed per Telegram user via `settings.get_adp_credentials(telegram_user_id)` in the handler before calling this function
 - Retry logic: 3 attempts with exponential backoff (2s, 4s, 8s)
-- Popup dismissal: "Remind me later" dialog handled with try/except
+- Comprehensive headless stealth via `context.add_init_script(STEALTH_JS)` — persists across all navigations
+- MFA detection: checks for `h1:has-text('Verify Your Identity')` after sign-in; if found, clicks "Send me a text message" and returns `mfa_required=True` with the page on the code entry screen
+- Popup dismissal: "Remind me later" dialog + Pendo overlay handled after login
+- Dashboard URL check: `https://workforcenow.adp.com/**` (NOT `**/workforcenow.adp.com/**` — see Dashboard URL Check Bug)
 - Raises `LoginError` after all retries exhausted
 
 ### Verified Login Selectors (`src/adp/selectors/login.py`)
@@ -331,6 +335,7 @@ REMIND_ME_LATER_BUTTON = 'sdf-button[aria-label="Remind me later"]'
 | `fill_react_dropdown(page, selector, value)` | Generic React Select (click, type, Enter) |
 | `click_and_wait(page, click_selector, wait_selector)` | Click then wait for next element |
 | `click_visible_next_button(page)` | Find and click the first *visible* Next button via JS evaluation |
+| `dismiss_pendo(page)` | Dismiss Pendo product-tour overlays that block clicks (close button or JS removal) |
 
 ### New Hire Form (`src/adp/new_hire_form.py`)
 
@@ -361,15 +366,36 @@ REMIND_ME_LATER_BUTTON = 'sdf-button[aria-label="Remind me later"]'
 2. `parse_new_hire_raw()` → raw dict
 3. `validate_new_hire_input()` → check against config_tables, return errors if invalid
 4. `parse_new_hire()` → create `NewHire` model
-5. Login to ADP → navigate → `fill_new_hire_form(dry_run=True)`
-6. Send screenshot to user for review
-7. User sends `/confirm` → click Save & Exit → `send_registration_code()` → done
-8. Or `/cancel` → close browser, discard
-9. Auto-cancel after 5 minutes via `job_queue`
+5. Login to ADP → if `mfa_required`: prompt user for code via Telegram → user replies → submit code → continue
+6. Navigate → `fill_new_hire_form(dry_run=True)`
+7. Send screenshot to user for review
+8. User sends `/confirm` → click Save & Exit → `send_registration_code()` → done
+9. Or `/cancel` → close browser, discard
+10. Auto-cancel after 5 minutes via `job_queue` (3 minutes for MFA timeout)
+
+### MFA Flow (`src/telegram_bot/handlers/new_hire.py`)
+
+When ADP requires identity verification during login:
+
+1. `login_to_adp()` detects MFA page (`h1:has-text('Verify Your Identity')`)
+2. Clicks "Send me a text message", captures `screenshots/mfa_code_entry.png`, returns `mfa_required=True`
+3. Handler stores `browser`, `page`, `hire` in `context.user_data`, sets `awaiting_mfa_code=True`
+4. Sends Telegram prompt: "Please reply with the verification code."
+5. `handle_mfa_code()` (`MessageHandler` for plain text) receives code, fills `page.get_by_label("Passcode")`, clicks Submit
+6. After dashboard redirect, continues with `_run_new_hire_flow()` (navigate → fill → confirm)
+7. `auto_cancel_mfa()` fires after 3 minutes if no code received
+
+**Key:** MFA and form-fill errors are in separate `try/except` blocks so error messages are accurate.
+
+### Debug & Error Screenshots
+
+- **On error:** Both `handle_new_hire` and post-MFA error handlers auto-send the latest screenshot from `screenshots/` to Telegram
+- **On demand:** `/debug` command sends the 3 most recent screenshots
+- **Pre-fill diagnostic:** `fill_new_hire_form()` captures `screenshots/form_pre_fill_debug.png` before the first field fill attempt
 
 ---
 
-## 🚀 Current Implementation Status (Last Updated: 2026-03-14)
+## 🚀 Current Implementation Status (Last Updated: 2026-03-16)
 
 ### ✅ Completed Components
 
@@ -381,39 +407,38 @@ REMIND_ME_LATER_BUTTON = 'sdf-button[aria-label="Remind me later"]'
 | `src/models/new_hire.py` | ✅ Working | Field validators for store, job title, work schedule |
 | `src/models/termination.py` | ✅ Working | Complete with validation |
 | `src/models/base.py` | ✅ Working | ActionType, ActionStatus enums |
-| `src/adp/auth.py` | ✅ Working | Login with retry, popup dismissal, headless detection avoidance |
-| `src/adp/navigation.py` | ✅ Working | New hire, security management, registration codes; timeouts tuned for VPS |
-| `src/adp/base_form.py` | ✅ Working | `fill_mdf_dropdown`, `click_visible_next_button`, etc. |
+| `src/adp/auth.py` | ✅ Working | Login with retry, popup dismissal, stealth via `add_init_script`, MFA detection |
+| `src/adp/navigation.py` | ✅ Working | New hire, security management, registration codes; retry + diagnostics for Process button; Pendo dismissal |
+| `src/adp/base_form.py` | ✅ Working | `fill_mdf_dropdown`, `click_visible_next_button`, `dismiss_pendo`, etc. |
 | `src/adp/new_hire_form.py` | ✅ Working | Full form fill + Save & Exit tested end-to-end |
 | `src/adp/registration_code.py` | ✅ Working | Tested end-to-end — registration code email delivered successfully |
 | `src/adp/exceptions.py` | ✅ Working | LoginError, FormSubmissionError, NavigationError, etc. |
 | `src/adp/selectors/login.py` | ✅ Verified | Real selectors from ADP |
 | `src/adp/selectors/new_hire.py` | ✅ Verified | Real selectors from ADP (all sections + PRC) |
 | `src/adp/selectors/termination.py` | ❌ Placeholders | TODO |
-| `src/telegram_bot/bot.py` | ✅ Working | Registers all handlers |
+| `src/telegram_bot/bot.py` | ✅ Working | Registers all handlers including MFA `MessageHandler` and `/debug` |
 | `src/telegram_bot/parsers.py` | ✅ Working | Case-insensitive parsing, raw dict + model creation |
-| `src/telegram_bot/handlers/common.py` | ✅ Working | /start, /help, /cancel, error handler |
-| `src/telegram_bot/handlers/new_hire.py` | ✅ Working | Dry-run → /confirm → submit + PRC flow |
+| `src/telegram_bot/handlers/common.py` | ✅ Working | /start, /help, /cancel, /debug, error handler |
+| `src/telegram_bot/handlers/new_hire.py` | ✅ Working | Dry-run → /confirm → submit + PRC flow; MFA code relay; auto-send screenshots on error |
 | `src/telegram_bot/handlers/termination.py` | ❌ Stub | "Not yet implemented" message |
 | `src/utils/logger.py` | ✅ Working | Console + rotating file handler |
-| `src/utils/screenshots.py` | ✅ Working | Timestamped screenshot capture |
+| `src/utils/screenshots.py` | ✅ Working | Viewport screenshot capture (not full_page) with 60s timeout |
 | `tests/test_login_nav.py` | ✅ Working | Login + full navigation test |
 | `tests/test_form_fill.py` | ✅ Working | Full dry-run test with test data |
 
 ### 🔧 Known Bugs / In Progress
 
 1. **"Did you start this hire already?" popup** — ADP shows `#showInProgressActiveEmpInfo_Id` if prior in-progress hire exists; needs dismissal logic at start of `fill_new_hire_form()`
-2. **MFA** — ADP may intermittently require SMS MFA on fresh browser sessions; not yet handled in script
-3. **Security Management opens in new tab** — `navigate_to_security_management()` must handle new tab via `context.expect_page()` and return the new page
-4. **Dojo framework dynamic IDs** — PRC confirmation popup uses dynamic IDs (e.g., `revit_form_Button_14`); use `span[role="button"]:has(span.dijitButtonText:has-text("Yes"))` instead
+2. **ADP loading spinner before "Ask the New Hire"** — Company Code / Tax ID Type selections trigger async re-renders; spinner wait added but may need adjustment on slower VPS
+3. **First name field timeout post-MFA** — Element resolves to visible but `wait_for_selector` times out (30s); likely DOM re-render after initial visibility. Diagnostic screenshot (`form_pre_fill_debug.png`) added to investigate
 
 ### 🎯 Next Steps
 
 1. Handle "Did you start this hire already?" popup
 2. Implement termination workflow
-3. Add MFA handling (SMS code input)
-4. Dry run cleanup (cancel form to prevent in-progress accumulation)
-5. Test with real new hire data
+3. Dry run cleanup (cancel form to prevent in-progress accumulation)
+4. Test full end-to-end with real new hire data
+5. Refine MFA code entry selectors after more VPS testing
 
 ---
 
@@ -429,11 +454,15 @@ REMIND_ME_LATER_BUTTON = 'sdf-button[aria-label="Remind me later"]'
 - Use `[OK]` and `[FAIL]` instead for Windows cp1252 compatibility
 
 ### ADP Navigation Timing
-- Use 30000ms (30s) initial wait after login before interacting with the dashboard (VPS requires more than local dev's 15s)
-- Use 60000ms (60s) `wait_for_selector` timeout for the Process menu button
-- Use 20000ms (20s) for all subsequent nav selectors (Hire/Rehire, Go to Hire, New Hires card, Setup menu, Security Management link, People menu, PRC link, search form)
-- New tab detection timeout: 10000ms; new tab load state: 60000ms
+- Dashboard wait: `wait_for_load_state("domcontentloaded")` + 15s static buffer (replaces old 30s static-only wait)
+- Process menu button: 60s timeout, with automatic retry (screenshot + page reload + 15s + 60s retry) via `_wait_for_process_button()`
+- All subsequent nav selectors: 20s timeout (Hire/Rehire, Go to Hire, New Hires card, Setup, Security Management, People, PRC, search form)
+- New tab detection timeout: 10s; new tab load state: 60s
 - Add `wait_for_timeout(3000)` after each section Next button click — ADP renders all sections simultaneously in the DOM; the next section is hidden until the transition completes
+- Form interactivity wait: 5s static before first field fill (VPS fields can be visible but not interactive)
+- First field (`#Name\.first`) timeout: 30s (ADP may re-render form DOM after initial visibility)
+- Company Code → Tax ID Type: 2s settle wait after company code, 20s timeout for Tax ID Type
+- Spinner wait: up to 15s before "Ask the New Hire" modal for ADP async re-renders to complete
 - Dashboard load time is inconsistent — navigation may intermittently fail; re-run
 
 ### ADP MDFSelectBox Dropdowns (CRITICAL)
@@ -461,19 +490,45 @@ REMIND_ME_LATER_BUTTON = 'sdf-button[aria-label="Remind me later"]'
 - Radio button selector: `sdf-radio-button[role="radio"][aria-checked="false"]` — click first result, verify `aria-checked="true"` after
 - If manager search fails: press `Escape` to dismiss the slider, append to `warnings`, continue — do NOT crash
 
-### Popup Handling
+### Popup & Overlay Handling
 - **"Remind me later"** popup may not appear every time — handled with try/except in `auth.py`
 - **"Did you start this hire already?"** popup (`#showInProgressActiveEmpInfo_Id`) appears when ADP detects an in-progress hire — must be dismissed before filling form fields
 - In-progress records from dry runs accumulate — delete them manually from ADP's In-Progress Hires list
+- **Pendo product tour overlay** — `dismiss_pendo()` in `base_form.py` handles these; called after login and before Process button click. Tries `[id^='pendo-close']` then `button._pendo-close-guide`, falls back to JS `querySelectorAll('[id^="pendo-"]').forEach(el => el.remove())`
+- **ADP loading spinner** — After Company Code selection, ADP shows a spinner while re-rendering dependent fields. Wait for spinner to disappear (`.sdf-spinner, .vdl-spinner, [class*='spinner'], [class*='loading']` → `state="hidden"`, 15s timeout) before clicking "Ask the New Hire"
 
-### Headless Browser Detection (VPS / Production)
-- ADP detects headless Chromium and serves a different login page layout (username + password on one page instead of the two-step flow), causing login to fail
-- **Fix applied in `auth.py`** — three changes together resolve this:
-  1. Launch arg `--disable-blink-features=AutomationControlled` — removes the automation flag exposed via `window.chrome.automation`
-  2. Realistic user agent: `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36` — headless Chromium default UA contains `"HeadlessChrome"` which is trivially detectable
-  3. `page.evaluate("() => { Object.defineProperty(navigator, 'webdriver', { get: () => false }) }")` — overrides `navigator.webdriver` (which is `true` by default under WebDriver) before any page content loads
+### Dashboard URL Check Bug (CRITICAL — Fixed 2026-03-16)
+- The login page URL contains `workforcenow.adp.com` in the `returnURL` query parameter: `https://online.adp.com/signin/v1/?...&returnURL=https://workforcenow.adp.com/&...`
+- The old glob pattern `**/workforcenow.adp.com/**` matched this query parameter, causing `wait_for_url` to pass immediately even when the page was still on the login screen (login failed silently)
+- **Fix**: use `https://workforcenow.adp.com/**` — matches only when the page is actually on the WFN domain
+- This bug was masked before MFA handling was added because the page typically redirected before the URL check ran
+
+### ADP Concurrent Session Issue
+- ADP has a single active session policy — logging in from another location may invalidate the existing session
+- If you log into ADP manually in a browser and close without logging out, the server-side session persists for 15–30 minutes
+- The bot's login attempt during this window may fail silently (stays on login page)
+- **Workaround**: log out of ADP before running the bot, or wait for the manual session to expire
+
+### MFA Selectors (Verified 2026-03-16)
+- Detection: `h1:has-text('Verify Your Identity')` — must use `h1` specifically; `text=Verify Your Identity` matches 2 elements (h1 + span)
+- SMS trigger: `page.locator("text=Send me a text message").click()`
+- Code input: `page.get_by_label("Passcode")`
+- Submit: progressive approach — `get_by_role("button", name="Submit")`, then `[type='submit']`, then `text=Submit`
+- Debug artifacts saved on each MFA: `screenshots/mfa_code_entry.png`, `screenshots/mfa_pre_submit_debug.png`, `screenshots/mfa_page_source.html`
+
+### Headless Browser Detection (VPS / Production) — CRITICAL
+- ADP detects headless Chromium and serves a different login page layout or blocks navigation entirely
+- **`page.evaluate()` does NOT persist across navigations** — overrides set on `about:blank` are lost when `page.goto()` loads a new URL. This was a bug in the original implementation.
+- **Fix applied in `auth.py`** — uses `context.add_init_script(STEALTH_JS)` which injects JavaScript BEFORE any page scripts on every navigation in the context. The `STEALTH_JS` constant covers 6 detection vectors:
+  1. `navigator.webdriver` → `undefined` (primary detection vector)
+  2. `navigator.plugins` → 3 fake Chrome plugins (headless has 0)
+  3. `navigator.languages` → `['en-US', 'en']`
+  4. `chrome.runtime` → exists (missing in headless)
+  5. `permissions.query` → consistent notification permission state
+  6. WebGL renderer → "Intel Iris OpenGL Engine" (headless shows "Google SwiftShader")
+- Additional launch args: `--disable-blink-features=AutomationControlled`, `--disable-features=IsolateOrigins,site-per-process`
+- Context options: realistic user agent (Chrome/131), viewport 1920x1080, locale `en-US`
 - Playwright 1.40+ uses `--headless=new` mode by default — no explicit flag needed
-- These changes are verified working on VPS with `HEADLESS=true`
 
 ### Security Management Portal (New Tab + Dojo Framework)
 - Clicking "Security Management" link opens a **new browser tab** — must handle via `context.expect_page()` and switch to the new page
@@ -531,15 +586,19 @@ REMIND_ME_LATER_BUTTON = 'sdf-button[aria-label="Remind me later"]'
 | Manager search returns no entries | Use last name only (`manager["search"]`), not full name |
 | Reports To slider blocks clicks | Press `Escape` to close slider if search fails |
 | "Did you start this hire already?" popup | Delete in-progress record from ADP, or add dismissal code |
-| MFA prompt blocking login | Complete MFA manually; will need script handling for production |
-| Login fails in headless mode on VPS | ADP detects automation; see Headless Browser Detection section — `--disable-blink-features=AutomationControlled`, custom user agent, and `navigator.webdriver=false` fix this |
-| Navigation times out on VPS | VPS latency is higher than local dev; timeouts in `navigation.py` already tuned (30s dashboard wait, 60s Process button, 20s others) |
+| MFA prompt blocking login | Handled automatically — bot detects MFA, sends SMS, relays code prompt via Telegram |
+| Login fails in headless mode on VPS | Stealth via `context.add_init_script(STEALTH_JS)` — covers webdriver, plugins, languages, chrome.runtime, permissions, WebGL |
+| Navigation times out on VPS | Process button has retry with reload; all timeouts tuned for VPS latency |
+| Pendo overlay blocks clicks | `dismiss_pendo()` called after login and before Process button click |
+| Login "succeeds" but dashboard not loading | Check URL — old `**/workforcenow.adp.com/**` pattern matched login page `returnURL`; fixed to `https://workforcenow.adp.com/**` |
+| Login fails after manual ADP session | ADP single-session policy — log out of ADP manually or wait 15–30 min for session expiry |
+| Screenshot times out | `full_page=False` (viewport only) + 60s timeout; ADP full-page never stabilizes |
+| Form field visible but times out | ADP re-renders DOM after dropdown selections; add settle waits + increase timeout; check `form_pre_fill_debug.png` |
 
 ---
 
 ## Future Enhancements
 
-- **MFA handling**: SMS code input via terminal (testing) or Telegram (production)
 - **"Did you start this hire already?" popup**: Auto-dismiss at start of form fill
 - **Dry run cleanup**: Click Cancel after dry run to prevent in-progress record accumulation
 - **ConversationHandler**: Replace simple CommandHandlers with guided multi-step input

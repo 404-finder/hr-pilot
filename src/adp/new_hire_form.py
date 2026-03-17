@@ -168,13 +168,23 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         # ====================================================================
         logger.info("Opening 'Ask the New Hire' modal")
 
-        await page.wait_for_selector(ASK_NEW_HIRE_BUTTON, timeout=10000)
+        # Wait for ADP's loading spinner to disappear before proceeding.
+        # Company Code / Tax ID Type selections trigger async re-renders.
+        try:
+            spinner = page.locator(".sdf-spinner, .vdl-spinner, [class*='spinner'], [class*='loading']").first
+            await spinner.wait_for(state="hidden", timeout=15000)
+            logger.info("Loading spinner disappeared")
+        except Exception:
+            logger.info("No spinner detected or already gone")
+
+        await page.wait_for_selector(ASK_NEW_HIRE_BUTTON, timeout=20000)
         await page.click(ASK_NEW_HIRE_BUTTON)
+        await page.wait_for_timeout(2000)
 
         # Assign Onboarding Experience sub-flow (from store config)
         onboarding_experience = store_config["onboarding_experience"]
         logger.info(f"Assigning onboarding experience: {onboarding_experience}")
-        await page.wait_for_selector(ASSIGN_ONBOARDING_BUTTON, timeout=10000)
+        await page.wait_for_selector(ASSIGN_ONBOARDING_BUTTON, timeout=20000)
         await page.click(ASSIGN_ONBOARDING_BUTTON)
         await fill_mdf_dropdown(page, ONBOARDING_TEMPLATE_SELECT, get_search_code(onboarding_experience), onboarding_experience)
         await page.click(ASSIGN_EXP_BUTTON)

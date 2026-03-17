@@ -29,7 +29,7 @@ async def capture_screenshot(page: Page, prefix: str) -> str:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     path = os.path.join(settings.screenshot_dir, f"{prefix}_{timestamp}.png")
 
-    await page.screenshot(path=path, full_page=True)
+    await page.screenshot(path=path, full_page=False, timeout=60000)
     logger.info(f"Screenshot captured: {path}")
 
     return path

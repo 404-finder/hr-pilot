@@ -172,7 +172,7 @@ async def login_to_adp(username: str, password: str) -> Tuple[Browser, Page, boo
 
             # Normal path — wait for dashboard URL
             logger.info("No MFA detected — waiting for dashboard redirect")
-            await page.wait_for_url("**/workforcenow.adp.com/**", timeout=30000)
+            await page.wait_for_url("https://workforcenow.adp.com/**", timeout=30000)
 
             # Wait for dashboard DOM to be ready before proceeding
             await page.wait_for_load_state("domcontentloaded")

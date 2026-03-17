@@ -448,7 +448,7 @@ async def handle_mfa_code(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
         # Wait for dashboard redirect after successful verification
         logger.info("Waiting for dashboard after MFA verification")
-        await page.wait_for_url("**/workforcenow.adp.com/**", timeout=30000)
+        await page.wait_for_url("https://workforcenow.adp.com/**", timeout=30000)
         await page.wait_for_load_state("domcontentloaded")
         logger.info(f"Post-MFA URL: {page.url}")
 

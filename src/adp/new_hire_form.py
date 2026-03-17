@@ -253,7 +253,8 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         logger.info(f"Assigning manager: {manager['name']}")
         await page.wait_for_selector(REPORTS_TO_BUTTON, timeout=10000)
         await page.click(REPORTS_TO_BUTTON)
-        await page.wait_for_selector(MANAGER_NAME_SEARCH_INPUT, timeout=10000)
+        await page.wait_for_timeout(3000)  # Wait for Reports To slider animation
+        await page.wait_for_selector(MANAGER_NAME_SEARCH_INPUT, timeout=20000)
 
         manager_selected = False
         search_terms = [manager["search"], manager["name"]]

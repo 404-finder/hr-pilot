@@ -7,7 +7,7 @@ Creates the Telegram bot application and registers all command handlers.
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
 
 from src.config import settings
-from src.telegram_bot.handlers.common import cancel, error_handler, help_command, start
+from src.telegram_bot.handlers.common import cancel, debug_screenshot, error_handler, help_command, start
 from src.telegram_bot.handlers.new_hire import (
     handle_cancel_hire,
     handle_confirm,
@@ -37,6 +37,7 @@ def create_bot() -> None:
     app.add_handler(CommandHandler("confirm", handle_confirm))
     app.add_handler(CommandHandler("cancel", handle_cancel_hire))
     app.add_handler(CommandHandler("terminate", handle_termination))
+    app.add_handler(CommandHandler("debug", debug_screenshot))
 
     # Register MFA code handler — plain text messages only, after all command handlers
     # so commands retain priority. The handler ignores messages when no MFA is pending.

@@ -4,7 +4,9 @@ New hire command handler.
 Handles /newhire command with dry-run preview and /confirm to submit.
 """
 
+import glob
 import logging
+import os
 
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -193,16 +195,18 @@ async def handle_new_hire(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         error_message = f"[FAIL] Error processing new hire:\n{str(e)}"
         await update.message.reply_text(error_message)
 
-        # Try to send screenshot if available
+        # Send the most recent screenshot for debugging
         try:
-            if hasattr(e, 'screenshot_path') and e.screenshot_path:
-                with open(e.screenshot_path, 'rb') as screenshot:
+            files = glob.glob(os.path.join(settings.screenshot_dir, "*.png"))
+            if files:
+                latest = max(files, key=os.path.getmtime)
+                with open(latest, "rb") as f:
                     await update.message.reply_photo(
-                        photo=screenshot,
-                        caption="Error screenshot for debugging"
+                        photo=f,
+                        caption=f"Debug: {os.path.basename(latest)}",
                     )
         except Exception as screenshot_error:
-            logger.error(f"Failed to send screenshot: {screenshot_error}")
+            logger.error(f"Failed to send debug screenshot: {screenshot_error}")
 
         # Close browser if opened
         if browser:
@@ -503,14 +507,22 @@ async def handle_mfa_code(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     except Exception as e:
         logger.error(f"Error processing new hire after MFA: {e}", exc_info=True)
 
-        try:
-            await capture_screenshot(page, "post_mfa_new_hire_error")
-        except Exception:
-            pass
-
         await update.message.reply_text(
             f"[FAIL] Error processing new hire:\n{str(e)}"
         )
+
+        # Send the most recent screenshot for debugging
+        try:
+            files = glob.glob(os.path.join(settings.screenshot_dir, "*.png"))
+            if files:
+                latest = max(files, key=os.path.getmtime)
+                with open(latest, "rb") as f:
+                    await update.message.reply_photo(
+                        photo=f,
+                        caption=f"Debug: {os.path.basename(latest)}",
+                    )
+        except Exception:
+            pass
 
         if browser:
             try:

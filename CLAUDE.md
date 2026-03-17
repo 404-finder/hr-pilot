@@ -140,12 +140,14 @@ SCREENSHOT_DIR=screenshots
 ## `requirements.txt`
 
 ```
-python-telegram-bot>=20.7
+python-telegram-bot[job-queue]>=20.7
 playwright>=1.40.0
 pydantic>=2.5.0
 pydantic-settings>=2.0.0
 python-dotenv>=1.0.0
 ```
+
+> **Note:** The `[job-queue]` extra installs `APScheduler`, required for auto-cancel timers (`job_queue.run_once()` in handlers).
 
 ---
 
@@ -392,10 +394,11 @@ When ADP requires identity verification during login:
 - **On error:** Both `handle_new_hire` and post-MFA error handlers auto-send the latest screenshot from `screenshots/` to Telegram
 - **On demand:** `/debug` command sends the 3 most recent screenshots
 - **Pre-fill diagnostic:** `fill_new_hire_form()` captures `screenshots/form_pre_fill_debug.png` before the first field fill attempt
+- **Modal debug:** `screenshots/modal_debug.png` — captured after clicking "Ask the New Hire" button; includes debug probes that log alternative selectors and dump modal inner HTML (up to 3000 chars) to identify correct onboarding experience element
 
 ---
 
-## 🚀 Current Implementation Status (Last Updated: 2026-03-16)
+## 🚀 Current Implementation Status (Last Updated: 2026-03-17)
 
 ### ✅ Completed Components
 
@@ -431,6 +434,7 @@ When ADP requires identity verification during login:
 1. **"Did you start this hire already?" popup** — ADP shows `#showInProgressActiveEmpInfo_Id` if prior in-progress hire exists; needs dismissal logic at start of `fill_new_hire_form()`
 2. **ADP loading spinner before "Ask the New Hire"** — Company Code / Tax ID Type selections trigger async re-renders; spinner wait added but may need adjustment on slower VPS
 3. **First name field timeout post-MFA** — Element resolves to visible but `wait_for_selector` times out (30s); likely DOM re-render after initial visibility. Diagnostic screenshot (`form_pre_fill_debug.png`) added to investigate
+4. **`#assignedTemplateName_Id` selector under investigation** — "Ask the New Hire" modal opens but the onboarding experience button (`#assignedTemplateName_Id`) is not found within 20s. Modal screenshot shows "Assign onboarding experience" with "None" and a pencil icon. Debug probes added to `new_hire_form.py` to capture modal HTML and test alternative selectors — results pending VPS run. **Temporary debug code** in the modal section should be removed once the correct selector is identified.
 
 ### 🎯 Next Steps
 
@@ -463,7 +467,14 @@ When ADP requires identity verification during login:
 - First field (`#Name\.first`) timeout: 30s (ADP may re-render form DOM after initial visibility)
 - Company Code → Tax ID Type: 2s settle wait after company code, 20s timeout for Tax ID Type
 - Spinner wait: up to 15s before "Ask the New Hire" modal for ADP async re-renders to complete
+- **All form `wait_for_selector` timeouts: 20s minimum** — VPS is consistently slower; elements resolve as visible in Playwright but React components need more time to become interactive. All 10s timeouts in `new_hire_form.py` were bumped to 20s (2026-03-16).
 - Dashboard load time is inconsistent — navigation may intermittently fail; re-run
+
+### Reports To Slider Animation (VPS — Fixed 2026-03-16)
+- Clicking `#openReportsToCustomSlider_Id` opens the "Change Reports To" slider panel
+- On VPS, the slider animation takes several seconds — `#onReportsToSearch` resolves as visible in Playwright's call log but the `wait_for_selector` still times out (element flickers during animation/re-render)
+- **Fix**: add `wait_for_timeout(3000)` after clicking the Reports To button, before waiting for the search input
+- The error screenshot (captured in the `except` block seconds later) shows the panel fully loaded — confirming the element IS there, just not stable within the original timeout window
 
 ### ADP MDFSelectBox Dropdowns (CRITICAL)
 - Most ADP dropdowns use **MDFSelectBox** React Select — NOT standard `<select>` elements
@@ -489,6 +500,7 @@ When ADP requires identity verification during login:
 - After search, check for "There are no entries" text before attempting radio button click
 - Radio button selector: `sdf-radio-button[role="radio"][aria-checked="false"]` — click first result, verify `aria-checked="true"` after
 - If manager search fails: press `Escape` to dismiss the slider, append to `warnings`, continue — do NOT crash
+- **Slider animation wait**: add `wait_for_timeout(3000)` after clicking `#openReportsToCustomSlider_Id` — on VPS, the search input (`#onReportsToSearch`) resolves as visible but times out because the slider is still animating/re-rendering
 
 ### Popup & Overlay Handling
 - **"Remind me later"** popup may not appear every time — handled with try/except in `auth.py`
@@ -594,6 +606,8 @@ When ADP requires identity verification during login:
 | Login fails after manual ADP session | ADP single-session policy — log out of ADP manually or wait 15–30 min for session expiry |
 | Screenshot times out | `full_page=False` (viewport only) + 60s timeout; ADP full-page never stabilizes |
 | Form field visible but times out | ADP re-renders DOM after dropdown selections; add settle waits + increase timeout; check `form_pre_fill_debug.png` |
+| Reports To search input times out | Slider animation on VPS — add 3s wait after clicking Reports To button; element resolves visible but flickers during animation |
+| Onboarding experience button not found | `#assignedTemplateName_Id` under investigation — check `screenshots/modal_debug.png` and debug probe logs for correct selector |
 
 ---
 

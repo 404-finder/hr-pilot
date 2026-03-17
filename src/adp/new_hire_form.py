@@ -120,7 +120,7 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         # Check "Use for Notification" checkbox
         # Element may be behind overlay or outside viewport — use JS evaluate to bypass
         logger.info("Checking 'Use for Notification' checkbox")
-        await page.wait_for_selector(USE_FOR_NOTIFICATION_CHECKBOX, timeout=10000)
+        await page.wait_for_selector(USE_FOR_NOTIFICATION_CHECKBOX, timeout=20000)
         checked = False
         try:
             await page.locator(USE_FOR_NOTIFICATION_CHECKBOX).evaluate("el => el.click()")
@@ -159,7 +159,7 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         await page.wait_for_timeout(2000)
 
         # Capture Associate ID
-        await page.wait_for_selector(ASSOCIATE_ID_INPUT, timeout=10000)
+        await page.wait_for_selector(ASSOCIATE_ID_INPUT, timeout=20000)
         associate_id = await page.input_value(ASSOCIATE_ID_INPUT)
         logger.info(f"Captured Associate ID: {associate_id}")
 
@@ -251,7 +251,7 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         # Reports To (Manager) sub-flow (auto-derived from store number)
         manager = get_manager(hire.store_number)
         logger.info(f"Assigning manager: {manager['name']}")
-        await page.wait_for_selector(REPORTS_TO_BUTTON, timeout=10000)
+        await page.wait_for_selector(REPORTS_TO_BUTTON, timeout=20000)
         await page.click(REPORTS_TO_BUTTON)
         await page.wait_for_timeout(3000)  # Wait for Reports To slider animation
         await page.wait_for_selector(MANAGER_NAME_SEARCH_INPUT, timeout=20000)
@@ -276,7 +276,7 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
             # Click the first unchecked radio button in the results
             logger.info("Clicking first radio button in results")
             await page.wait_for_selector(
-                'sdf-radio-button[role="radio"][aria-checked="false"]', timeout=5000
+                'sdf-radio-button[role="radio"][aria-checked="false"]', timeout=20000
             )
             await page.click('sdf-radio-button[role="radio"][aria-checked="false"]')
 
@@ -311,7 +311,7 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
 
         # Save modal
         logger.info("Saving 'Ask the New Hire' modal")
-        await page.wait_for_selector(SAVE_MODAL_BUTTON, timeout=10000)
+        await page.wait_for_selector(SAVE_MODAL_BUTTON, timeout=20000)
         await page.click(SAVE_MODAL_BUTTON)
 
         # Debug screenshot after personal section
@@ -322,7 +322,7 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         # ====================================================================
         logger.info("Proceeding to Employment section")
 
-        await page.wait_for_selector(NEXT_BUTTON_PRIMARY, timeout=10000)
+        await page.wait_for_selector(NEXT_BUTTON_PRIMARY, timeout=20000)
         await page.click(NEXT_BUTTON_PRIMARY)
 
         # Handle validation popup if it appears
@@ -374,7 +374,7 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
 
         # Calculate Using Measurement Periods radio (from store config)
         if store_config["measurement_periods"]:
-            await page.wait_for_selector(CALCULATE_USING_MEASUREMENT_PERIODS_RADIO, timeout=10000)
+            await page.wait_for_selector(CALCULATE_USING_MEASUREMENT_PERIODS_RADIO, timeout=20000)
             await page.click(CALCULATE_USING_MEASUREMENT_PERIODS_RADIO)
             logger.debug("Selected measurement periods option")
 
@@ -393,7 +393,7 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
 
         # Proceed to Payroll section
         logger.info("Proceeding to Payroll section")
-        await click_visible_next_button(page, timeout=10000)
+        await click_visible_next_button(page, timeout=20000)
         await page.wait_for_timeout(3000)  # Wait for Payroll section to become visible
 
         # Handle validation popup if it appears
@@ -420,7 +420,7 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
 
         # Regular Pay Rate — use click+triple-click+type to trigger React onChange
         logger.info(f"Filling Regular Pay Rate with value: {hire.pay_rate}")
-        await page.wait_for_selector(REGULAR_PAY_RATE_INPUT, timeout=10000)
+        await page.wait_for_selector(REGULAR_PAY_RATE_INPUT, timeout=20000)
         await page.click(REGULAR_PAY_RATE_INPUT)
         await page.keyboard.press("Control+a")
         await page.type(REGULAR_PAY_RATE_INPUT, str(hire.pay_rate))
@@ -437,7 +437,7 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
 
         # Proceed to Tax section
         logger.info("Proceeding to Tax section")
-        await click_visible_next_button(page, timeout=10000)
+        await click_visible_next_button(page, timeout=20000)
         await page.wait_for_timeout(3000)  # Wait for Tax section to become visible
 
         # ====================================================================
@@ -455,7 +455,7 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
 
         # Proceed to Direct Deposit section
         logger.info("Proceeding to Direct Deposit section (will skip)")
-        await page.wait_for_selector(TAX_NEXT_BUTTON, timeout=10000)
+        await page.wait_for_selector(TAX_NEXT_BUTTON, timeout=20000)
         await page.click(TAX_NEXT_BUTTON)
 
         # ====================================================================
@@ -473,7 +473,7 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         # ====================================================================
         logger.info("Skipping Emergency Contact section")
 
-        await click_visible_next_button(page, timeout=10000)
+        await click_visible_next_button(page, timeout=20000)
 
         # ====================================================================
         # DRY RUN CHECK
@@ -499,7 +499,7 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         # ====================================================================
         logger.info("Submitting and saving new hire form")
 
-        await page.wait_for_selector(SAVE_AND_EXIT_BUTTON, timeout=10000)
+        await page.wait_for_selector(SAVE_AND_EXIT_BUTTON, timeout=20000)
         await page.click(SAVE_AND_EXIT_BUTTON)
 
         # Wait for redirect to In-Progress Hires page

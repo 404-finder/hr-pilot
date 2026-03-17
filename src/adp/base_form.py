@@ -12,6 +12,41 @@ from playwright.async_api import Page
 logger = logging.getLogger(__name__)
 
 
+async def dismiss_pendo(page: Page) -> None:
+    """Dismiss any Pendo product-tour overlay that may be blocking clicks.
+
+    Tries a close button first; falls back to removing all Pendo elements via
+    JavaScript. Silently no-ops if no Pendo overlay is present.
+
+    Args:
+        page: Playwright page object.
+    """
+    try:
+        if not await page.locator("[id^='pendo-']").first.is_visible():
+            return
+
+        logger.info("Pendo overlay detected — attempting dismissal")
+        dismissed = False
+        for sel in ["[id^='pendo-close']", "button._pendo-close-guide"]:
+            try:
+                await page.locator(sel).click(timeout=2000)
+                dismissed = True
+                logger.info(f"Pendo dismissed via close button: {sel}")
+                break
+            except Exception:
+                continue
+
+        if not dismissed:
+            await page.evaluate(
+                "document.querySelectorAll('[id^=\"pendo-\"]').forEach(el => el.remove())"
+            )
+            logger.info("Pendo overlay removed via JavaScript")
+
+        await page.wait_for_timeout(1000)
+    except Exception:
+        pass  # No Pendo overlay present
+
+
 async def fill_text_field(page: Page, selector: str, value: str, timeout: int = 10000) -> None:
     """Clear and fill a text input field.
 

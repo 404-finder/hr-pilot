@@ -11,6 +11,7 @@ from typing import Tuple
 
 from playwright.async_api import Browser, Page, async_playwright
 
+from src.adp.base_form import dismiss_pendo
 from src.adp.exceptions import LoginError
 from src.adp.selectors.login import (
     NEXT_BUTTON,
@@ -185,6 +186,9 @@ async def login_to_adp(username: str, password: str) -> Tuple[Browser, Page, boo
                 logger.info("Dismissed ADP popup")
             except Exception:
                 logger.info("No popup detected")
+
+            # Dismiss Pendo product tour overlay if present
+            await dismiss_pendo(page)
 
             logger.info("Successfully logged into ADP")
             return browser, page, False

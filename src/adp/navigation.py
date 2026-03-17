@@ -8,6 +8,7 @@ import logging
 
 from playwright.async_api import Page
 
+from src.adp.base_form import dismiss_pendo
 from src.adp.exceptions import NavigationError
 from src.adp.selectors.new_hire import (
     GO_TO_HIRE_BUTTON,
@@ -92,6 +93,7 @@ async def navigate_to_new_hire(page: Page) -> None:
         # Click Process menu (with retry on failure)
         logger.info("Clicking Process menu")
         await _wait_for_process_button(page)
+        await dismiss_pendo(page)
         await page.click(PROCESS_MENU_BUTTON)
 
         # Click Hire/Rehire link

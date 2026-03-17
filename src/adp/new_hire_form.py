@@ -102,6 +102,10 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         # ====================================================================
         logger.info("Filling personal information section")
 
+        # Wait for the form to become fully interactive after navigation.
+        # VPS latency means fields can be visible but not yet interactive.
+        await page.wait_for_timeout(5000)
+
         # Fill basic information
         await fill_text_field(page, FIRST_NAME_INPUT, hire.first_name)
         await fill_text_field(page, LAST_NAME_INPUT, hire.last_name)

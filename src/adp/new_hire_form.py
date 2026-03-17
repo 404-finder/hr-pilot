@@ -143,8 +143,11 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         await fill_mdf_dropdown(page, COMPANY_CODE_SELECT, get_search_code(company_code), company_code)
         logger.debug(f"Selected company code: {company_code}")
 
+        # Company code selection can trigger ADP to re-render dependent fields
+        await page.wait_for_timeout(2000)
+
         # Select tax ID type (always SSN)
-        await fill_mdf_dropdown(page, TAX_ID_TYPE_SELECT, "United", "Social Security")
+        await fill_mdf_dropdown(page, TAX_ID_TYPE_SELECT, "United", "Social Security", timeout=20000)
         logger.debug("Selected tax ID type: SSN")
 
         # Wait for Associate ID to generate

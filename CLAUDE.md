@@ -431,12 +431,14 @@ When ADP requires identity verification during login:
 ### 🔧 Known Bugs / In Progress
 
 1. **"Did you start this hire already?" popup** — ADP shows `#showInProgressActiveEmpInfo_Id` if prior in-progress hire exists; needs dismissal logic at start of `fill_new_hire_form()`
+2. **`#assignedTemplateName_Id` selector NOT working** — "Ask the New Hire" modal opens successfully via `#ENHAskNewhire`, but the onboarding experience edit button (`#assignedTemplateName_Id`) times out after 20s. Modal screenshot confirms the element IS visible as "None" + pencil icon next to "Assign onboarding experience *". The element either has a different ID, is not considered "visible" by Playwright (SDF custom element / zero-dimension `<a>` tag), or is in the DOM but hidden. Debug probes were previously added (7 alt selectors + role-based search + HTML dump) but results were never collected before the debug code was removed. **Needs multi-strategy fix**: try `.or_()` with `[id*="assignedTemplate"]`, then `state="attached"` + JS click, then text-based locator near "Assign onboarding experience" label. See plan at `.claude/plans/cached-riding-pond.md`.
 
 ### 🎯 Next Steps
 
-1. Handle "Did you start this hire already?" popup
-2. Implement termination workflow
-3. Dry run cleanup (cancel form to prevent in-progress accumulation)
+1. **Fix onboarding experience button selector** — implement multi-strategy approach from plan
+2. Handle "Did you start this hire already?" popup
+3. Implement termination workflow
+4. Dry run cleanup (cancel form to prevent in-progress accumulation)
 
 ---
 

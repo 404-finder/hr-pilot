@@ -43,6 +43,8 @@ ASK_NEW_HIRE_BUTTON = '#ENHAskNewhire'
 
 # Onboarding experience assignment
 ASSIGN_ONBOARDING_BUTTON = '#assignedTemplateName_Id'
+ASSIGN_ONBOARDING_BUTTON_ALT1 = '[id*="assignedTemplate"]'
+ASSIGN_ONBOARDING_BUTTON_ALT2 = 'a[id*="assignedTemplate"]'
 ONBOARDING_TEMPLATE_SELECT = '#onboardingTemplateId'
 ASSIGN_EXP_BUTTON = '#ENHAssignOBExp'
 BACK_BUTTON = '#back-button-with-label'

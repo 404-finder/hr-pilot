@@ -24,6 +24,8 @@ from src.config_tables import (
 from src.adp.selectors.new_hire import (
     ASSIGN_EXP_BUTTON,
     ASSIGN_ONBOARDING_BUTTON,
+    ASSIGN_ONBOARDING_BUTTON_ALT1,
+    ASSIGN_ONBOARDING_BUTTON_ALT2,
     ASK_NEW_HIRE_BUTTON,
     ASSOCIATE_ID_INPUT,
     BACK_BUTTON,
@@ -182,8 +184,89 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         # Assign Onboarding Experience sub-flow (from store config)
         onboarding_experience = store_config["onboarding_experience"]
         logger.info(f"Assigning onboarding experience: {onboarding_experience}")
-        await page.wait_for_selector(ASSIGN_ONBOARDING_BUTTON, timeout=20000)
-        await page.click(ASSIGN_ONBOARDING_BUTTON)
+
+        # Multi-strategy click: the onboarding edit button is an SDF custom
+        # element that Playwright may not consider "visible" (zero-dimension
+        # <a> tag or shadow DOM wrapper).
+        onboarding_clicked = False
+
+        # Strategy 1: Original selector with state="attached" + JS click
+        try:
+            el = page.locator(ASSIGN_ONBOARDING_BUTTON)
+            await el.wait_for(state="attached", timeout=10000)
+            await el.evaluate("el => el.click()")
+            onboarding_clicked = True
+            logger.info("Onboarding button clicked via strategy 1 (original ID + JS click)")
+        except Exception as e:
+            logger.warning(f"Strategy 1 failed ({ASSIGN_ONBOARDING_BUTTON}): {e}")
+
+        # Strategy 2: Partial ID match with state="attached" + JS click
+        if not onboarding_clicked:
+            for alt_sel in [ASSIGN_ONBOARDING_BUTTON_ALT1, ASSIGN_ONBOARDING_BUTTON_ALT2]:
+                try:
+                    el = page.locator(alt_sel).first
+                    await el.wait_for(state="attached", timeout=5000)
+                    await el.evaluate("el => el.click()")
+                    onboarding_clicked = True
+                    logger.info(f"Onboarding button clicked via strategy 2 ({alt_sel})")
+                    break
+                except Exception as e:
+                    logger.warning(f"Strategy 2 failed ({alt_sel}): {e}")
+
+        # Strategy 3: Text-based — find pencil/edit icon near "Assign onboarding experience"
+        if not onboarding_clicked:
+            try:
+                el = page.locator("text=Assign onboarding experience").locator("..").locator("a, button, [role='button']").first
+                await el.wait_for(state="attached", timeout=5000)
+                await el.evaluate("el => el.click()")
+                onboarding_clicked = True
+                logger.info("Onboarding button clicked via strategy 3 (text-based)")
+            except Exception as e:
+                logger.warning(f"Strategy 3 failed (text-based): {e}")
+
+        # Strategy 4: JavaScript — find any clickable element within the onboarding section
+        if not onboarding_clicked:
+            try:
+                clicked = await page.evaluate("""() => {
+                    // Look for elements with 'assignedTemplate' in any attribute
+                    const byId = document.querySelector('[id*="assignedTemplate"]');
+                    if (byId) { byId.click(); return 'id-partial'; }
+                    // Look for clickable element near the "Assign onboarding" text
+                    const labels = document.querySelectorAll('*');
+                    for (const el of labels) {
+                        if (el.textContent && el.textContent.includes('Assign onboarding experience')
+                            && el.children.length < 5) {
+                            const clickable = el.querySelector('a, button, [role="button"], .edit-icon, [class*="edit"], [class*="pencil"]');
+                            if (clickable) { clickable.click(); return 'text-child'; }
+                            // Try clicking the parent area itself
+                            el.click();
+                            return 'text-parent';
+                        }
+                    }
+                    return null;
+                }""")
+                if clicked:
+                    onboarding_clicked = True
+                    logger.info(f"Onboarding button clicked via strategy 4 (JS: {clicked})")
+                else:
+                    logger.warning("Strategy 4: no matching element found via JS")
+            except Exception as e:
+                logger.warning(f"Strategy 4 failed (JS): {e}")
+
+        if not onboarding_clicked:
+            # Capture diagnostic HTML dump for future debugging
+            try:
+                modal_html = await page.evaluate("""() => {
+                    const modal = document.querySelector('[class*="modal"], [class*="dialog"], [role="dialog"]');
+                    return modal ? modal.innerHTML.substring(0, 3000) : document.body.innerHTML.substring(0, 3000);
+                }""")
+                logger.error(f"All onboarding strategies failed. Modal HTML (first 3000 chars): {modal_html}")
+            except Exception:
+                pass
+            raise FormSubmissionError("Could not click 'Assign onboarding experience' button after 4 strategies")
+
+        # Wait for the onboarding experience assignment sub-page to load
+        await page.wait_for_timeout(2000)
         await fill_mdf_dropdown(page, ONBOARDING_TEMPLATE_SELECT, get_search_code(onboarding_experience), onboarding_experience)
         await page.click(ASSIGN_EXP_BUTTON)
         await page.click(BACK_BUTTON)

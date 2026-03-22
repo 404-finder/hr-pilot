@@ -108,10 +108,6 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         # VPS latency means fields can be visible but not yet interactive.
         await page.wait_for_timeout(5000)
 
-        # Diagnostic screenshot to see form state before first fill attempt
-        await page.screenshot(path="screenshots/form_pre_fill_debug.png", timeout=60000)
-        logger.info(f"Pre-fill screenshot saved. URL: {page.url}")
-
         # Fill basic information — first field gets longer timeout because ADP
         # can re-render the form DOM after initial visibility (especially post-MFA).
         await fill_text_field(page, FIRST_NAME_INPUT, hire.first_name, timeout=30000)
@@ -182,57 +178,6 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         await page.wait_for_selector(ASK_NEW_HIRE_BUTTON, timeout=20000)
         await page.click(ASK_NEW_HIRE_BUTTON)
         await page.wait_for_timeout(3000)  # Wait for modal to fully render
-
-        # Debug: capture modal state to identify correct selectors
-        await page.screenshot(path="screenshots/modal_debug.png", timeout=60000)
-        logger.info("Modal debug screenshot saved to screenshots/modal_debug.png")
-
-        # Debug: probe for onboarding experience element with alternative selectors
-        alt_selectors = {
-            "original #assignedTemplateName_Id": '#assignedTemplateName_Id',
-            "[id*='assignedTemplate']": '[id*="assignedTemplate"]',
-            "[id*='onboarding']": '[id*="onboarding"]',
-            "[id*='Onboarding']": '[id*="Onboarding"]',
-            "[id*='template']": '[id*="template"]',
-            "[id*='Template']": '[id*="Template"]',
-            "text='Assign onboarding experience'": 'text=Assign onboarding experience',
-        }
-        for label, sel in alt_selectors.items():
-            try:
-                count = await page.locator(sel).count()
-                if count > 0:
-                    el = page.locator(sel).first
-                    tag = await el.evaluate("el => el.tagName")
-                    el_id = await el.evaluate("el => el.id || '(no id)'")
-                    outer = await el.evaluate("el => el.outerHTML.substring(0, 200)")
-                    logger.info(f"FOUND [{label}]: count={count}, tag={tag}, id={el_id}, html={outer}")
-                else:
-                    logger.info(f"NOT FOUND [{label}]")
-            except Exception as e:
-                logger.info(f"ERROR [{label}]: {e}")
-
-        # Debug: look for pencil/edit icon or button near "onboarding" text
-        try:
-            role_btn = page.get_by_role("button", name="Assign onboarding experience")
-            role_count = await role_btn.count()
-            if role_count > 0:
-                outer = await role_btn.first.evaluate("el => el.outerHTML.substring(0, 200)")
-                logger.info(f"FOUND [role=button 'Assign onboarding experience']: count={role_count}, html={outer}")
-            else:
-                logger.info("NOT FOUND [role=button 'Assign onboarding experience']")
-        except Exception as e:
-            logger.info(f"ERROR [role=button 'Assign onboarding experience']: {e}")
-
-        # Debug: dump all clickable elements inside the modal
-        try:
-            modal_html = await page.evaluate("""() => {
-                const modal = document.querySelector('[role="dialog"], .modal, [class*="modal"], [class*="Modal"], [class*="slider"], [class*="Slider"]');
-                if (modal) return modal.innerHTML.substring(0, 3000);
-                return '(no modal container found)';
-            }""")
-            logger.info(f"Modal inner HTML (first 3000 chars): {modal_html}")
-        except Exception as e:
-            logger.info(f"ERROR dumping modal HTML: {e}")
 
         # Assign Onboarding Experience sub-flow (from store config)
         onboarding_experience = store_config["onboarding_experience"]
@@ -316,9 +261,6 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         await page.wait_for_selector(SAVE_MODAL_BUTTON, timeout=20000)
         await page.click(SAVE_MODAL_BUTTON)
 
-        # Debug screenshot after personal section
-        await capture_screenshot(page, "debug_personal_done")
-
         # ====================================================================
         # PROCEED TO EMPLOYMENT SECTION
         # ====================================================================
@@ -399,9 +341,6 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         else:
             logger.warning(f"WARNING: Home Department may not have filled correctly (expected '{home_department}')")
 
-        # Debug screenshot after employment section
-        await capture_screenshot(page, "debug_employment_done")
-
         # Proceed to Payroll section
         logger.info("Proceeding to Payroll section")
         await click_visible_next_button(page, timeout=20000)
@@ -449,9 +388,6 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
             logger.info(f"CONFIRMED: Regular Pay Rate = '{actual_pay_rate}'")
         else:
             logger.warning(f"WARNING: Regular Pay Rate may not have filled correctly (expected '{hire.pay_rate}')")
-
-        # Debug screenshot after payroll section
-        await capture_screenshot(page, "debug_payroll_done")
 
         # Proceed to Tax section
         logger.info("Proceeding to Tax section")

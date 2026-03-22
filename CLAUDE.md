@@ -389,16 +389,15 @@ When ADP requires identity verification during login:
 
 **Key:** MFA and form-fill errors are in separate `try/except` blocks so error messages are accurate.
 
-### Debug & Error Screenshots
+### Error Screenshots
 
 - **On error:** Both `handle_new_hire` and post-MFA error handlers auto-send the latest screenshot from `screenshots/` to Telegram
 - **On demand:** `/debug` command sends the 3 most recent screenshots
-- **Pre-fill diagnostic:** `fill_new_hire_form()` captures `screenshots/form_pre_fill_debug.png` before the first field fill attempt
-- **Modal debug:** `screenshots/modal_debug.png` — captured after clicking "Ask the New Hire" button; includes debug probes that log alternative selectors and dump modal inner HTML (up to 3000 chars) to identify correct onboarding experience element
+- **Review screenshot:** Captured at the end of form fill for user confirmation before `/confirm`
 
 ---
 
-## 🚀 Current Implementation Status (Last Updated: 2026-03-17)
+## 🚀 Current Implementation Status (Last Updated: 2026-03-22)
 
 ### ✅ Completed Components
 
@@ -410,9 +409,9 @@ When ADP requires identity verification during login:
 | `src/models/new_hire.py` | ✅ Working | Field validators for store, job title, work schedule |
 | `src/models/termination.py` | ✅ Working | Complete with validation |
 | `src/models/base.py` | ✅ Working | ActionType, ActionStatus enums |
-| `src/adp/auth.py` | ✅ Working | Login with retry, popup dismissal, stealth via `add_init_script`, MFA detection |
+| `src/adp/auth.py` | ✅ Working | Login with retry, popup dismissal, stealth via `add_init_script`, MFA detection + SMS relay |
 | `src/adp/navigation.py` | ✅ Working | New hire, security management, registration codes; retry + diagnostics for Process button; Pendo dismissal |
-| `src/adp/base_form.py` | ✅ Working | `fill_mdf_dropdown`, `click_visible_next_button`, `dismiss_pendo`, etc. |
+| `src/adp/base_form.py` | ✅ Working | `fill_mdf_dropdown`, `click_visible_next_button`, `dismiss_pendo`; all default timeouts 20s |
 | `src/adp/new_hire_form.py` | ✅ Working | Full form fill + Save & Exit tested end-to-end |
 | `src/adp/registration_code.py` | ✅ Working | Tested end-to-end — registration code email delivered successfully |
 | `src/adp/exceptions.py` | ✅ Working | LoginError, FormSubmissionError, NavigationError, etc. |
@@ -432,17 +431,12 @@ When ADP requires identity verification during login:
 ### 🔧 Known Bugs / In Progress
 
 1. **"Did you start this hire already?" popup** — ADP shows `#showInProgressActiveEmpInfo_Id` if prior in-progress hire exists; needs dismissal logic at start of `fill_new_hire_form()`
-2. **ADP loading spinner before "Ask the New Hire"** — Company Code / Tax ID Type selections trigger async re-renders; spinner wait added but may need adjustment on slower VPS
-3. **First name field timeout post-MFA** — Element resolves to visible but `wait_for_selector` times out (30s); likely DOM re-render after initial visibility. Diagnostic screenshot (`form_pre_fill_debug.png`) added to investigate
-4. **`#assignedTemplateName_Id` selector under investigation** — "Ask the New Hire" modal opens but the onboarding experience button (`#assignedTemplateName_Id`) is not found within 20s. Modal screenshot shows "Assign onboarding experience" with "None" and a pencil icon. Debug probes added to `new_hire_form.py` to capture modal HTML and test alternative selectors — results pending VPS run. **Temporary debug code** in the modal section should be removed once the correct selector is identified.
 
 ### 🎯 Next Steps
 
 1. Handle "Did you start this hire already?" popup
 2. Implement termination workflow
 3. Dry run cleanup (cancel form to prevent in-progress accumulation)
-4. Test full end-to-end with real new hire data
-5. Refine MFA code entry selectors after more VPS testing
 
 ---
 
@@ -467,7 +461,7 @@ When ADP requires identity verification during login:
 - First field (`#Name\.first`) timeout: 30s (ADP may re-render form DOM after initial visibility)
 - Company Code → Tax ID Type: 2s settle wait after company code, 20s timeout for Tax ID Type
 - Spinner wait: up to 15s before "Ask the New Hire" modal for ADP async re-renders to complete
-- **All form `wait_for_selector` timeouts: 20s minimum** — VPS is consistently slower; elements resolve as visible in Playwright but React components need more time to become interactive. All 10s timeouts in `new_hire_form.py` were bumped to 20s (2026-03-16).
+- **All form `wait_for_selector` timeouts: 20s minimum** — VPS is consistently slower; elements resolve as visible in Playwright but React components need more time to become interactive. All `base_form.py` utility function defaults set to 20000ms (2026-03-22).
 - Dashboard load time is inconsistent — navigation may intermittently fail; re-run
 
 ### Reports To Slider Animation (VPS — Fixed 2026-03-16)
@@ -521,17 +515,17 @@ When ADP requires identity verification during login:
 - The bot's login attempt during this window may fail silently (stays on login page)
 - **Workaround**: log out of ADP before running the bot, or wait for the manual session to expire
 
-### MFA Selectors (Verified 2026-03-16)
+### MFA Handling (Verified & Working 2026-03-22)
 - Detection: `h1:has-text('Verify Your Identity')` — must use `h1` specifically; `text=Verify Your Identity` matches 2 elements (h1 + span)
 - SMS trigger: `page.locator("text=Send me a text message").click()`
 - Code input: `page.get_by_label("Passcode")`
 - Submit: progressive approach — `get_by_role("button", name="Submit")`, then `[type='submit']`, then `text=Submit`
-- Debug artifacts saved on each MFA: `screenshots/mfa_code_entry.png`, `screenshots/mfa_pre_submit_debug.png`, `screenshots/mfa_page_source.html`
+- Full flow: `auth.py` detects MFA → triggers SMS → returns `mfa_required=True` → handler prompts user via Telegram → user replies with code → handler fills passcode + submits → continues to dashboard
 
 ### Headless Browser Detection (VPS / Production) — CRITICAL
 - ADP detects headless Chromium and serves a different login page layout or blocks navigation entirely
-- **`page.evaluate()` does NOT persist across navigations** — overrides set on `about:blank` are lost when `page.goto()` loads a new URL. This was a bug in the original implementation.
-- **Fix applied in `auth.py`** — uses `context.add_init_script(STEALTH_JS)` which injects JavaScript BEFORE any page scripts on every navigation in the context. The `STEALTH_JS` constant covers 6 detection vectors:
+- **`context.add_init_script(STEALTH_JS)`** is the correct approach — injects JavaScript BEFORE any page scripts on every navigation in the context. Do NOT use `page.evaluate()` which does not persist across navigations.
+- The `STEALTH_JS` constant in `auth.py` covers 6 detection vectors:
   1. `navigator.webdriver` → `undefined` (primary detection vector)
   2. `navigator.plugins` → 3 fake Chrome plugins (headless has 0)
   3. `navigator.languages` → `['en-US', 'en']`
@@ -541,6 +535,13 @@ When ADP requires identity verification during login:
 - Additional launch args: `--disable-blink-features=AutomationControlled`, `--disable-features=IsolateOrigins,site-per-process`
 - Context options: realistic user agent (Chrome/131), viewport 1920x1080, locale `en-US`
 - Playwright 1.40+ uses `--headless=new` mode by default — no explicit flag needed
+
+### VPS Deployment (DigitalOcean — Working 2026-03-22)
+- **Platform**: DigitalOcean droplet, Ubuntu 24.04
+- **Service management**: systemd service for the Telegram bot
+- **All base_form.py utility defaults**: 20000ms — VPS is consistently slower than local dev
+- **Pendo overlay dismissal**: `dismiss_pendo()` in `base_form.py` called after login and before Process button click; tries close buttons, falls back to JS removal
+- **Validation popups**: "Go to Next Section" handled with combined `.or_()` locator (3 fallback selectors) + 20s timeout after Personal and Employment sections
 
 ### Security Management Portal (New Tab + Dojo Framework)
 - Clicking "Security Management" link opens a **new browser tab** — must handle via `context.expect_page()` and switch to the new page
@@ -605,9 +606,8 @@ When ADP requires identity verification during login:
 | Login "succeeds" but dashboard not loading | Check URL — old `**/workforcenow.adp.com/**` pattern matched login page `returnURL`; fixed to `https://workforcenow.adp.com/**` |
 | Login fails after manual ADP session | ADP single-session policy — log out of ADP manually or wait 15–30 min for session expiry |
 | Screenshot times out | `full_page=False` (viewport only) + 60s timeout; ADP full-page never stabilizes |
-| Form field visible but times out | ADP re-renders DOM after dropdown selections; add settle waits + increase timeout; check `form_pre_fill_debug.png` |
+| Form field visible but times out | ADP re-renders DOM after dropdown selections; add settle waits + increase timeout |
 | Reports To search input times out | Slider animation on VPS — add 3s wait after clicking Reports To button; element resolves visible but flickers during animation |
-| Onboarding experience button not found | `#assignedTemplateName_Id` under investigation — check `screenshots/modal_debug.png` and debug probe logs for correct selector |
 
 ---
 

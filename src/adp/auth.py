@@ -6,7 +6,6 @@ Handles login/logout and session management for ADP Workforce Now.
 
 import asyncio
 import logging
-import os
 from typing import Tuple
 
 from playwright.async_api import Browser, Page, async_playwright
@@ -151,7 +150,6 @@ async def login_to_adp(username: str, password: str) -> Tuple[Browser, Page, boo
             # Fill password and sign in
             logger.info("Entering password")
             await page.fill(PASSWORD_INPUT, password)
-            os.makedirs("screenshots", exist_ok=True)
             await page.click(SIGN_IN_BUTTON)
 
             # Check for MFA before waiting for the dashboard
@@ -162,11 +160,6 @@ async def login_to_adp(username: str, password: str) -> Tuple[Browser, Page, boo
                 logger.info("MFA page detected — triggering SMS code")
                 await page.locator("text=Send me a text message").click()
                 await page.wait_for_timeout(2000)
-
-                # Screenshot so we can identify code-entry selectors later
-                os.makedirs("screenshots", exist_ok=True)
-                await page.screenshot(path="screenshots/mfa_code_entry.png")
-                logger.info("MFA code entry screenshot saved to screenshots/mfa_code_entry.png")
 
                 return browser, page, True
 

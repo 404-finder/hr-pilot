@@ -47,7 +47,7 @@ async def dismiss_pendo(page: Page) -> None:
         pass  # No Pendo overlay present
 
 
-async def fill_text_field(page: Page, selector: str, value: str, timeout: int = 10000) -> None:
+async def fill_text_field(page: Page, selector: str, value: str, timeout: int = 20000) -> None:
     """Clear and fill a text input field.
 
     Args:
@@ -62,7 +62,7 @@ async def fill_text_field(page: Page, selector: str, value: str, timeout: int = 
     logger.debug(f"Filled text field {selector} with value")
 
 
-async def select_dropdown(page: Page, selector: str, value: str, timeout: int = 10000) -> None:
+async def select_dropdown(page: Page, selector: str, value: str, timeout: int = 20000) -> None:
     """Select an option from a dropdown by visible text.
 
     Args:
@@ -76,7 +76,7 @@ async def select_dropdown(page: Page, selector: str, value: str, timeout: int = 
     logger.debug(f"Selected dropdown {selector} with value: {value}")
 
 
-async def fill_date_field(page: Page, selector: str, date_str: str, timeout: int = 10000) -> None:
+async def fill_date_field(page: Page, selector: str, date_str: str, timeout: int = 20000) -> None:
     """Fill a date picker field (MM/DD/YYYY format).
 
     Args:
@@ -92,7 +92,7 @@ async def fill_date_field(page: Page, selector: str, date_str: str, timeout: int
     logger.debug(f"Filled date field {selector} with: {date_str}")
 
 
-async def click_checkbox(page: Page, selector: str, should_check: bool, timeout: int = 10000) -> None:
+async def click_checkbox(page: Page, selector: str, should_check: bool, timeout: int = 20000) -> None:
     """Set a checkbox to checked or unchecked.
 
     Args:
@@ -112,8 +112,8 @@ async def click_and_wait(
     page: Page,
     click_selector: str,
     wait_selector: str,
-    click_timeout: int = 10000,
-    wait_timeout: int = 10000,
+    click_timeout: int = 20000,
+    wait_timeout: int = 20000,
 ) -> None:
     """Click a button and wait for the next element to appear.
 
@@ -136,7 +136,7 @@ async def fill_mdf_dropdown(
     selector: str,
     search_code: str,
     match_text: str,
-    timeout: int = 10000,
+    timeout: int = 20000,
 ) -> None:
     """Fill an ADP MDFSelectBox React Select dropdown.
 
@@ -163,7 +163,7 @@ async def fill_mdf_dropdown(
     logger.debug(f"MDF dropdown {selector}: selected '{match_text}'")
 
 
-async def click_visible_next_button(page: Page, timeout: int = 10000) -> None:
+async def click_visible_next_button(page: Page, timeout: int = 20000) -> None:
     """Click the first visible primary Next button in the current form section.
 
     ADP's new hire form keeps Next buttons from all sections in the DOM
@@ -203,7 +203,7 @@ async def fill_react_dropdown(
     page: Page,
     selector: str,
     value: str,
-    timeout: int = 10000
+    timeout: int = 20000
 ) -> None:
     """Fill a React Select dropdown by clicking, typing, and pressing Enter.
 

@@ -267,7 +267,81 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
 
         # Wait for the onboarding experience assignment sub-page to load
         await page.wait_for_timeout(2000)
-        await fill_mdf_dropdown(page, ONBOARDING_TEMPLATE_SELECT, get_search_code(onboarding_experience), onboarding_experience)
+
+        # The onboarding template dropdown's internal input (#onboardingTemplateId)
+        # is hidden inside the MDFSelectBox container. Playwright's wait_for_selector
+        # (visible) times out. Click the visible container div to open the dropdown,
+        # then type the search code via keyboard into the now-focused input.
+        ob_search_code = get_search_code(onboarding_experience)
+        logger.info(f"Filling onboarding template dropdown: search='{ob_search_code}', match='{onboarding_experience}'")
+
+        ob_opened = False
+        # Try 1: Click the MDFSelectBox__control container around the hidden input
+        try:
+            container = page.locator(ONBOARDING_TEMPLATE_SELECT).locator(
+                "xpath=ancestor::div[contains(@class, 'MDFSelectBox__control')]"
+            )
+            await container.wait_for(state="attached", timeout=10000)
+            await container.click()
+            ob_opened = True
+            logger.info("Onboarding dropdown opened via MDFSelectBox__control container")
+        except Exception as e:
+            logger.warning(f"MDFSelectBox__control click failed: {e}")
+
+        # Try 2: Click the wrapper div that holds the entire Select component
+        if not ob_opened:
+            try:
+                wrapper = page.locator(ONBOARDING_TEMPLATE_SELECT).locator(
+                    "xpath=ancestor::div[contains(@class, 'MDFSelectBox')]"
+                ).first
+                await wrapper.wait_for(state="attached", timeout=5000)
+                await wrapper.click()
+                ob_opened = True
+                logger.info("Onboarding dropdown opened via MDFSelectBox wrapper")
+            except Exception as e:
+                logger.warning(f"MDFSelectBox wrapper click failed: {e}")
+
+        # Try 3: Use aria-label to find a visible sibling/ancestor and click it
+        if not ob_opened:
+            try:
+                await page.locator('[aria-label="Select an onboarding experience"]').locator("..").locator("..").click(timeout=5000)
+                ob_opened = True
+                logger.info("Onboarding dropdown opened via aria-label ancestor")
+            except Exception as e:
+                logger.warning(f"Aria-label ancestor click failed: {e}")
+
+        # Try 4: JS — click the control div directly
+        if not ob_opened:
+            try:
+                await page.evaluate("""() => {
+                    const input = document.querySelector('#onboardingTemplateId');
+                    if (input) {
+                        const control = input.closest('[class*="MDFSelectBox__control"]')
+                            || input.closest('[class*="MDFSelectBox"]')
+                            || input.parentElement.parentElement;
+                        if (control) control.click();
+                    }
+                }""")
+                ob_opened = True
+                logger.info("Onboarding dropdown opened via JS closest() click")
+            except Exception as e:
+                logger.warning(f"JS closest click failed: {e}")
+
+        if not ob_opened:
+            raise FormSubmissionError("Could not open onboarding template dropdown")
+
+        # Type search code via keyboard (input is now focused after container click)
+        await page.keyboard.type(ob_search_code)
+        logger.debug(f"Typed '{ob_search_code}' into onboarding dropdown")
+        await page.wait_for_timeout(1500)
+
+        # Click matching option
+        ob_option_selector = f'[class*="MDFSelectBox__option"]:has-text("{onboarding_experience}")'
+        await page.wait_for_selector(ob_option_selector, timeout=20000)
+        await page.click(ob_option_selector)
+        await page.wait_for_timeout(500)
+        logger.info(f"Selected onboarding experience: {onboarding_experience}")
+
         await page.click(ASSIGN_EXP_BUTTON)
         await page.click(BACK_BUTTON)
         logger.debug(f"Assigned onboarding experience: {onboarding_experience}")

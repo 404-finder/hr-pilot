@@ -185,6 +185,44 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         onboarding_experience = store_config["onboarding_experience"]
         logger.info(f"Assigning onboarding experience: {onboarding_experience}")
 
+        # === DIAGNOSTIC: dump all clickable elements in the modal area ===
+        await page.wait_for_timeout(3000)  # let modal fully render
+        await capture_screenshot(page, "modal_pre_click_debug")
+
+        modal_dump = await page.evaluate("""() => {
+            const all = document.querySelectorAll('a, button, [role="button"], input, svg, [onclick]');
+            const results = [];
+            for (const el of all) {
+                const rect = el.getBoundingClientRect();
+                const text = (el.textContent || '').trim().substring(0, 80);
+                const id = el.id || '';
+                const classes = el.className || '';
+                const tag = el.tagName;
+                const ariaLabel = el.getAttribute('aria-label') || '';
+                if (text.toLowerCase().includes('assign') ||
+                    text.toLowerCase().includes('onboard') ||
+                    text.toLowerCase().includes('none') ||
+                    text.toLowerCase().includes('pencil') ||
+                    text.toLowerCase().includes('edit') ||
+                    id.toLowerCase().includes('assign') ||
+                    id.toLowerCase().includes('template') ||
+                    id.toLowerCase().includes('onboard') ||
+                    ariaLabel.toLowerCase().includes('assign') ||
+                    ariaLabel.toLowerCase().includes('edit') ||
+                    (rect.top > 100 && rect.top < 300 && rect.left > 400 && rect.left < 800)) {
+                    results.push({
+                        tag, id, classes: String(classes).substring(0, 100),
+                        ariaLabel, text: text.substring(0, 80),
+                        visible: rect.width > 0 && rect.height > 0,
+                        rect: {top: Math.round(rect.top), left: Math.round(rect.left), w: Math.round(rect.width), h: Math.round(rect.height)}
+                    });
+                }
+            }
+            return JSON.stringify(results, null, 2);
+        }""")
+        logger.info(f"Modal clickable elements dump: {modal_dump}")
+        # === END DIAGNOSTIC ===
+
         # Multi-strategy click: the onboarding edit button is an SDF custom
         # element that Playwright may not consider "visible" (zero-dimension
         # <a> tag or shadow DOM wrapper).

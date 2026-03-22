@@ -192,143 +192,67 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         except Exception:
             logger.info("No modal spinner detected or already gone")
 
-        await capture_screenshot(page, "modal_pre_click_debug")
-
-        # Single JS approach: find the pencil/edit icon near "Assign onboarding experience"
-        # Key finding: there are 2 text nodes matching "Assign onboarding experience":
-        #   1. In the header (y=-662, ABOVE viewport) — #ENHAssignOnboarding button
-        #   2. In the visible modal content (y>0) — the label next to "None" pencil icon
-        # We MUST skip off-screen elements and only interact with the visible one.
-        click_result = await page.evaluate("""() => {
-            const log = [];
-            const describeEl = (el) => {
-                const rect = el.getBoundingClientRect();
-                return 'tag=' + el.tagName + ' id=' + (el.id || '') +
-                       ' class=' + (String(el.className) || '').substring(0, 100) +
-                       ' text=' + (el.textContent || '').trim().substring(0, 50) +
-                       ' rect=' + Math.round(rect.left) + ',' + Math.round(rect.top) +
-                       ',' + Math.round(rect.width) + 'x' + Math.round(rect.height) +
-                       ' href=' + (el.getAttribute('href') || '');
-            };
+        # Click the pencil/edit icon (SDF-BUTTON#assignedTemplateName_Id, 14x16px
+        # fa-pencil) to open the onboarding experience sub-page.
+        # CRITICAL: Two "Assign onboarding experience" elements exist in the DOM:
+        #   1. Header button #ENHAssignOnboarding (y=-662, above viewport — ignore)
+        #   2. Visible modal label + pencil icon (y>0 — this is the target)
+        # Must filter by viewport visibility to avoid clicking the off-screen one.
+        clicked = await page.evaluate("""() => {
             const isVisible = (el) => {
                 const r = el.getBoundingClientRect();
                 return r.top > -10 && r.top < window.innerHeight && r.width > 0 && r.height > 0;
             };
 
-            // Step 1: Find text nodes with "Assign onboarding experience"
+            // Find visible "Assign onboarding experience" label
             const walker = document.createTreeWalker(
                 document.body, NodeFilter.SHOW_TEXT,
                 { acceptNode: n => n.textContent.includes('Assign onboarding experience')
                     ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT }
             );
-            const textNodes = [];
             let node;
-            while ((node = walker.nextNode())) textNodes.push(node);
-            log.push('Text nodes found: ' + textNodes.length);
+            while ((node = walker.nextNode())) {
+                const label = node.parentElement;
+                if (!label || !isVisible(label)) continue;
 
-            for (const tn of textNodes) {
-                const label = tn.parentElement;
-                if (!label) continue;
-                log.push('Label: ' + describeEl(label));
-
-                // Skip labels that are off-screen (header area above viewport)
-                if (!isVisible(label)) {
-                    log.push('  SKIPPING: label is off-screen');
-                    continue;
-                }
-
-                // Log each ancestor level to understand DOM structure
-                let el = label;
-                for (let i = 0; i <= 3 && el.parentElement; i++) {
-                    el = el.parentElement;
-                    log.push('  Level ' + (i+1) + ': ' + describeEl(el));
-                }
-
-                // Strategy A: Look for a visible parent button/link
+                // Strategy A: click visible parent button/link
                 const parentBtn = label.closest('button, a[href], [role="button"]');
                 if (parentBtn && isVisible(parentBtn)) {
-                    log.push('Strategy A: found visible parent button: ' + describeEl(parentBtn));
                     parentBtn.scrollIntoView({block: 'center'});
                     parentBtn.click();
-                    log.push('CLICKED via Strategy A');
-                    return { clicked: true, method: 'parent-button', element: describeEl(parentBtn), log: log };
+                    return 'parent-button:' + (parentBtn.id || parentBtn.tagName);
                 }
-                log.push('Strategy A: no visible parent button found');
 
-                // Strategy B: Walk up 2-3 levels and find a visible sibling
-                // (the pencil icon or "None" text that is clickable)
+                // Strategy B: find visible sibling (pencil icon) within 3 levels
                 let container = label.parentElement;
                 for (let depth = 0; depth < 3 && container; depth++) {
-                    log.push('Strategy B depth ' + depth + ': ' + describeEl(container));
                     const children = container.querySelectorAll(
                         'a, button, svg, img, [role="button"], [class*="edit"], [class*="icon"]'
                     );
                     for (const c of children) {
                         if (c.contains(label) || label.contains(c)) continue;
                         if (!isVisible(c)) continue;
-                        log.push('  Strategy B candidate: ' + describeEl(c));
                         c.scrollIntoView({block: 'center'});
                         c.click();
-                        log.push('CLICKED via Strategy B (sibling at depth ' + depth + ')');
-                        return { clicked: true, method: 'sibling-depth-' + depth, element: describeEl(c), log: log };
+                        return 'sibling:' + (c.id || c.tagName);
                     }
                     container = container.parentElement;
                 }
-                log.push('Strategy B: no visible sibling found');
-
-                // Strategy C: Look for visible "None" text in the same section
-                let section = label;
-                for (let i = 0; i < 3 && section.parentElement; i++) section = section.parentElement;
-                log.push('Strategy C: searching section: ' + describeEl(section));
-                const sectionEls = section.querySelectorAll('*');
-                for (const se of sectionEls) {
-                    if (se.contains(label) || label.contains(se)) continue;
-                    const txt = (se.textContent || '').trim();
-                    if (txt !== 'None' && txt !== 'None ') continue;
-                    if (se.children.length > 2) continue;
-                    if (!isVisible(se)) continue;
-                    log.push('Strategy C: found visible "None": ' + describeEl(se));
-                    const target = se.closest('a, button, [role="button"]') || se;
-                    log.push('Strategy C: clicking: ' + describeEl(target));
-                    target.scrollIntoView({block: 'center'});
-                    target.click();
-                    log.push('CLICKED via Strategy C');
-                    return { clicked: true, method: 'none-text', element: describeEl(target), log: log };
-                }
             }
-
-            log.push('All strategies failed');
-            return { clicked: false, method: null, element: null, log: log };
+            return null;
         }""")
-        logger.info(f"Onboarding edit click result: {click_result}")
 
-        for line in click_result.get("log", []):
-            logger.info(f"  JS: {line}")
-
-        if not click_result.get("clicked"):
-            # Dump modal HTML for debugging
-            try:
-                modal_html = await page.evaluate("""() => {
-                    const modal = document.querySelector(
-                        '[class*="modal"], [class*="dialog"], [role="dialog"]'
-                    );
-                    return modal ? modal.innerHTML.substring(0, 5000)
-                                 : document.body.innerHTML.substring(0, 5000);
-                }""")
-                logger.error(f"Onboarding click failed. HTML dump: {modal_html}")
-            except Exception:
-                pass
+        if not clicked:
             raise FormSubmissionError(
                 "Could not click 'Assign onboarding experience' pencil icon"
             )
+        logger.info(f"Onboarding pencil icon clicked via {clicked}")
 
-        # Wait for onboarding sub-page to load and confirm with screenshot
+        # Wait for onboarding sub-page slide-in to load
         await page.wait_for_timeout(3000)
-        await capture_screenshot(page, "onboarding_after_pencil_click")
 
-        # The onboarding sub-page has an MDFSelectBox dropdown (#onboardingTemplateId)
-        # inside a slide-in pane (#showTemplateSlideIn_Id). Use fill_mdf_dropdown
-        # to interact with it, then click Assign and Back.
+        # Select onboarding experience from MDFSelectBox (#onboardingTemplateId)
+        # inside the slide-in pane (#showTemplateSlideIn_Id)
         logger.info(f"Selecting onboarding experience: {onboarding_experience}")
 
         ob_search_code = get_search_code(onboarding_experience)

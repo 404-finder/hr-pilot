@@ -431,14 +431,13 @@ When ADP requires identity verification during login:
 ### 🔧 Known Bugs / In Progress
 
 1. **"Did you start this hire already?" popup** — ADP shows `#showInProgressActiveEmpInfo_Id` if prior in-progress hire exists; needs dismissal logic at start of `fill_new_hire_form()`
-2. **`#assignedTemplateName_Id` selector NOT working** — "Ask the New Hire" modal opens successfully via `#ENHAskNewhire`, but the onboarding experience edit button (`#assignedTemplateName_Id`) times out after 20s. Modal screenshot confirms the element IS visible as "None" + pencil icon next to "Assign onboarding experience *". The element either has a different ID, is not considered "visible" by Playwright (SDF custom element / zero-dimension `<a>` tag), or is in the DOM but hidden. Debug probes were previously added (7 alt selectors + role-based search + HTML dump) but results were never collected before the debug code was removed. **Needs multi-strategy fix**: try `.or_()` with `[id*="assignedTemplate"]`, then `state="attached"` + JS click, then text-based locator near "Assign onboarding experience" label. See plan at `.claude/plans/cached-riding-pond.md`.
 
 ### 🎯 Next Steps
 
-1. **Fix onboarding experience button selector** — implement multi-strategy approach from plan
-2. Handle "Did you start this hire already?" popup
-3. Implement termination workflow
-4. Dry run cleanup (cancel form to prevent in-progress accumulation)
+1. Handle "Did you start this hire already?" popup
+2. Implement termination workflow
+3. Dry run cleanup (cancel form to prevent in-progress accumulation)
+4. Browser session persistence (save cookies to skip MFA on subsequent runs)
 
 ---
 
@@ -471,6 +470,15 @@ When ADP requires identity verification during login:
 - On VPS, the slider animation takes several seconds — `#onReportsToSearch` resolves as visible in Playwright's call log but the `wait_for_selector` still times out (element flickers during animation/re-render)
 - **Fix**: add `wait_for_timeout(3000)` after clicking the Reports To button, before waiting for the search input
 - The error screenshot (captured in the `except` block seconds later) shows the panel fully loaded — confirming the element IS there, just not stable within the original timeout window
+
+### Onboarding Experience Pencil Icon (CRITICAL — Fixed 2026-03-22)
+- The pencil/edit icon is `SDF-BUTTON#assignedTemplateName_Id` — a 14x16px Font Awesome icon (`fa fa-pencil`) next to "None" text
+- **Two "Assign onboarding experience" elements exist in the DOM**: one in the header (`#ENHAssignOnboarding` at y=-662, above viewport) and one in the visible modal content (y>0)
+- Playwright's `waitForSelector` finds the off-screen header button first — clicking it does nothing because ADP ignores clicks on non-visible elements
+- **Fix**: JS `page.evaluate()` with `isVisible()` filter (`r.top > -10 && r.top < window.innerHeight`) skips the off-screen duplicate
+- Strategy A: click visible parent button/link of the label. Strategy B: walk up 2-3 levels to find a visible sibling (the pencil icon)
+- The onboarding experience dropdown inside the sub-page slide-in (`#showTemplateSlideIn_Id`) is an **MDFSelectBox** (`#onboardingTemplateId`), NOT a standard `<select>` — use `fill_mdf_dropdown()` as normal
+- After selection: click `#ENHAssignOBExp` (Assign button) then `#back-button-with-label` (Back) to return to the modal
 
 ### ADP MDFSelectBox Dropdowns (CRITICAL)
 - Most ADP dropdowns use **MDFSelectBox** React Select — NOT standard `<select>` elements
@@ -610,6 +618,8 @@ When ADP requires identity verification during login:
 | Screenshot times out | `full_page=False` (viewport only) + 60s timeout; ADP full-page never stabilizes |
 | Form field visible but times out | ADP re-renders DOM after dropdown selections; add settle waits + increase timeout |
 | Reports To search input times out | Slider animation on VPS — add 3s wait after clicking Reports To button; element resolves visible but flickers during animation |
+| Onboarding pencil icon click does nothing | Two DOM elements match — off-screen header button at y=-662 gets clicked instead. Use JS `isVisible()` filter to skip off-screen elements |
+| Onboarding dropdown not working | It's an MDFSelectBox (`#onboardingTemplateId`), not a `<select>`. Use `fill_mdf_dropdown()` |
 
 ---
 

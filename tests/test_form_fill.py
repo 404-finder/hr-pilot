@@ -60,11 +60,14 @@ async def main():
 
         # Step 2: Login to ADP
         print("\n[2] Logging into ADP...")
-        creds = settings.get_adp_credentials(settings.telegram_allowed_user_ids[0])
-        browser, page = await login_to_adp(
+        creds = settings.get_adp_credentials(settings.allowed_user_ids[0])
+        browser, page, mfa_required = await login_to_adp(
             username=creds.username,
             password=creds.password.get_secret_value(),
         )
+        if mfa_required:
+            print("[FAIL] MFA required - cannot proceed in automated test")
+            return
         print("[OK] Login successful!")
 
         # Step 3: Navigate to new hire form

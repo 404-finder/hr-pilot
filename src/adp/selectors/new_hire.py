@@ -70,6 +70,7 @@ SAVE_MODAL_BUTTON = '#ENHInitiatePrehire'
 # After personal section
 NEXT_BUTTON_PRIMARY = '#OE_Next_Prim_btn_Id'
 VALIDATION_POPUP_GO_TO_NEXT = 'sdf-button[aria-label="Go to Next Section"]'
+VALIDATION_POPUP_GO_TO_NEXT_ALT = 'button:has-text("Go to Next Section")'
 
 # ============================================================================
 # EMPLOYMENT SECTION
@@ -87,7 +88,8 @@ HOME_DEPARTMENT_SELECT_ALT = 'input[aria-label="Home Department"]'
 
 # Next button after employment
 EMPLOYMENT_NEXT_BUTTON = 'button.vdl-button--primary:has-text("Next")'
-EMPLOYMENT_VALIDATION_POPUP_GO_TO_NEXT = 'sdf-button[aria-label="Go to next section"]'
+EMPLOYMENT_VALIDATION_POPUP_GO_TO_NEXT = 'sdf-button[aria-label="Go to Next Section"]'
+EMPLOYMENT_VALIDATION_POPUP_GO_TO_NEXT_ALT = 'button:has-text("Go to Next Section")'
 
 # ============================================================================
 # PAYROLL SECTION

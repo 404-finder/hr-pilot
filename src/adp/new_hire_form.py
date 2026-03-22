@@ -34,6 +34,7 @@ from src.adp.selectors.new_hire import (
     EMERGENCY_CONTACT_NEXT_BUTTON,
     EMPLOYMENT_NEXT_BUTTON,
     EMPLOYMENT_VALIDATION_POPUP_GO_TO_NEXT,
+    EMPLOYMENT_VALIDATION_POPUP_GO_TO_NEXT_ALT,
     E_VERIFY_LOCATION_SELECT,
     FIRST_NAME_INPUT,
     HIRE_DATE_INPUT,
@@ -59,6 +60,7 @@ from src.adp.selectors.new_hire import (
     TAX_NEXT_BUTTON,
     USE_FOR_NOTIFICATION_CHECKBOX,
     VALIDATION_POPUP_GO_TO_NEXT,
+    VALIDATION_POPUP_GO_TO_NEXT_ALT,
     WORKER_CATEGORY_SELECT,
     WORKED_IN_STATE_SELECT,
 )
@@ -325,13 +327,22 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         await page.wait_for_selector(NEXT_BUTTON_PRIMARY, timeout=20000)
         await page.click(NEXT_BUTTON_PRIMARY)
 
-        # Handle validation popup if it appears
+        # Handle validation popup — "Go to Next Section" button.
+        # ADP shows this when optional fields (SSN, DOB, address) are empty.
+        # Try multiple selectors: sdf-button aria-label, text-based, then role-based.
+        popup_locator = page.locator(
+            VALIDATION_POPUP_GO_TO_NEXT
+        ).or_(page.locator(
+            VALIDATION_POPUP_GO_TO_NEXT_ALT
+        )).or_(page.get_by_role(
+            "button", name="Go to Next Section"
+        ))
         try:
-            await page.wait_for_selector(VALIDATION_POPUP_GO_TO_NEXT, timeout=3000)
-            await page.click(VALIDATION_POPUP_GO_TO_NEXT)
-            logger.debug("Clicked through validation popup")
+            await popup_locator.wait_for(timeout=20000)
+            await popup_locator.click()
+            logger.info("Clicked validation popup 'Go to Next Section' (Personal)")
         except Exception:
-            logger.debug("No validation popup appeared")
+            logger.debug("No validation popup appeared after Personal section")
 
         await page.wait_for_timeout(3000)  # Wait for Employment section to become visible
 
@@ -396,13 +407,20 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         await click_visible_next_button(page, timeout=20000)
         await page.wait_for_timeout(3000)  # Wait for Payroll section to become visible
 
-        # Handle validation popup if it appears
+        # Handle validation popup — same pattern as Personal section.
+        emp_popup_locator = page.locator(
+            EMPLOYMENT_VALIDATION_POPUP_GO_TO_NEXT
+        ).or_(page.locator(
+            EMPLOYMENT_VALIDATION_POPUP_GO_TO_NEXT_ALT
+        )).or_(page.get_by_role(
+            "button", name="Go to Next Section"
+        ))
         try:
-            await page.wait_for_selector(EMPLOYMENT_VALIDATION_POPUP_GO_TO_NEXT, timeout=3000)
-            await page.click(EMPLOYMENT_VALIDATION_POPUP_GO_TO_NEXT)
-            logger.debug("Clicked through employment validation popup")
+            await emp_popup_locator.wait_for(timeout=20000)
+            await emp_popup_locator.click()
+            logger.info("Clicked validation popup 'Go to Next Section' (Employment)")
         except Exception:
-            logger.debug("No validation popup appeared")
+            logger.debug("No validation popup appeared after Employment section")
 
         # ====================================================================
         # PAYROLL SECTION

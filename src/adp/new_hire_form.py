@@ -268,8 +268,29 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         # Wait for the onboarding experience assignment sub-page to load
         await page.wait_for_timeout(2000)
 
-        # Onboarding template is a standard HTML <select>, not an MDFSelectBox.
-        await select_dropdown(page, ONBOARDING_TEMPLATE_SELECT, onboarding_experience)
+        # The onboarding template dropdown is an MDFSelectBox whose <input>
+        # is hidden. Standard fill_mdf_dropdown fails (waits for visible).
+        # Fix: focus the hidden input via JS, type to open the menu, click option.
+        ob_search_code = get_search_code(onboarding_experience)
+        logger.info(f"Filling onboarding dropdown: search='{ob_search_code}', match='{onboarding_experience}'")
+
+        await page.locator(ONBOARDING_TEMPLATE_SELECT).wait_for(state="attached", timeout=20000)
+        await page.evaluate("""() => {
+            const input = document.querySelector('#onboardingTemplateId');
+            if (input) {
+                input.focus();
+                input.dispatchEvent(new Event('focus', {bubbles: true}));
+            }
+        }""")
+        await page.wait_for_timeout(500)
+        await page.keyboard.type(ob_search_code)
+        logger.debug(f"Typed '{ob_search_code}' into onboarding dropdown via keyboard")
+        await page.wait_for_timeout(2000)
+
+        ob_option = f'[class*="MDFSelectBox__option"]:has-text("{onboarding_experience}")'
+        await page.wait_for_selector(ob_option, timeout=20000)
+        await page.click(ob_option)
+        await page.wait_for_timeout(500)
         logger.info(f"Selected onboarding experience: {onboarding_experience}")
 
         await page.click(ASSIGN_EXP_BUTTON)

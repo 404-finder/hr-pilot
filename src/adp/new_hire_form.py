@@ -23,9 +23,6 @@ from src.config_tables import (
 )
 from src.adp.selectors.new_hire import (
     ASSIGN_EXP_BUTTON,
-    ASSIGN_ONBOARDING_BUTTON,
-    ASSIGN_ONBOARDING_BUTTON_ALT1,
-    ASSIGN_ONBOARDING_BUTTON_ALT2,
     ASK_NEW_HIRE_BUTTON,
     ASSOCIATE_ID_INPUT,
     BACK_BUTTON,
@@ -185,126 +182,125 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         onboarding_experience = store_config["onboarding_experience"]
         logger.info(f"Assigning onboarding experience: {onboarding_experience}")
 
-        # === DIAGNOSTIC: dump all clickable elements in the modal area ===
-        await page.wait_for_timeout(3000)  # let modal fully render
+        # Wait for any loading spinner to disappear before interacting
+        try:
+            spinner = page.locator(
+                ".sdf-spinner, .vdl-spinner, [class*='spinner'], [class*='loading']"
+            ).first
+            await spinner.wait_for(state="hidden", timeout=15000)
+            logger.info("Modal spinner disappeared")
+        except Exception:
+            logger.info("No modal spinner detected or already gone")
+
         await capture_screenshot(page, "modal_pre_click_debug")
 
-        modal_dump = await page.evaluate("""() => {
-            const all = document.querySelectorAll('a, button, [role="button"], input, svg, [onclick]');
-            const results = [];
-            for (const el of all) {
-                const rect = el.getBoundingClientRect();
-                const text = (el.textContent || '').trim().substring(0, 80);
-                const id = el.id || '';
-                const classes = el.className || '';
-                const tag = el.tagName;
-                const ariaLabel = el.getAttribute('aria-label') || '';
-                if (text.toLowerCase().includes('assign') ||
-                    text.toLowerCase().includes('onboard') ||
-                    text.toLowerCase().includes('none') ||
-                    text.toLowerCase().includes('pencil') ||
-                    text.toLowerCase().includes('edit') ||
-                    id.toLowerCase().includes('assign') ||
-                    id.toLowerCase().includes('template') ||
-                    id.toLowerCase().includes('onboard') ||
-                    ariaLabel.toLowerCase().includes('assign') ||
-                    ariaLabel.toLowerCase().includes('edit') ||
-                    (rect.top > 100 && rect.top < 300 && rect.left > 400 && rect.left < 800)) {
-                    results.push({
-                        tag, id, classes: String(classes).substring(0, 100),
-                        ariaLabel, text: text.substring(0, 80),
-                        visible: rect.width > 0 && rect.height > 0,
-                        rect: {top: Math.round(rect.top), left: Math.round(rect.left), w: Math.round(rect.width), h: Math.round(rect.height)}
-                    });
+        # Single JS approach: find the pencil/edit icon near "Assign onboarding experience"
+        click_result = await page.evaluate("""() => {
+            const log = [];
+
+            // Step 1: Find all elements whose text includes "Assign onboarding experience"
+            const walker = document.createTreeWalker(
+                document.body, NodeFilter.SHOW_TEXT,
+                { acceptNode: n => n.textContent.includes('Assign onboarding experience')
+                    ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT }
+            );
+            const textNodes = [];
+            let node;
+            while ((node = walker.nextNode())) textNodes.push(node);
+            log.push('Text nodes matching "Assign onboarding experience": ' + textNodes.length);
+
+            for (const tn of textNodes) {
+                const label = tn.parentElement;
+                if (!label) continue;
+                log.push('Label element: tag=' + label.tagName + ' id=' + (label.id || '') +
+                          ' class=' + (String(label.className) || '').substring(0, 80));
+
+                // Walk up to the containing section (up to 5 levels)
+                let container = label;
+                for (let i = 0; i < 5; i++) {
+                    if (container.parentElement) container = container.parentElement;
+                }
+                log.push('Container: tag=' + container.tagName + ' id=' + (container.id || '') +
+                          ' class=' + (String(container.className) || '').substring(0, 80));
+
+                // Search the container for clickable edit/pencil elements
+                const candidates = container.querySelectorAll(
+                    'a, svg, img, span, button, [role="button"], [class*="edit"], [class*="pencil"], [class*="icon"]'
+                );
+                log.push('Clickable candidates in container: ' + candidates.length);
+
+                for (const c of candidates) {
+                    const rect = c.getBoundingClientRect();
+                    const info = 'tag=' + c.tagName + ' id=' + (c.id || '') +
+                                 ' class=' + (String(c.className) || '').substring(0, 80) +
+                                 ' text=' + (c.textContent || '').trim().substring(0, 40) +
+                                 ' rect=' + Math.round(rect.left) + ',' + Math.round(rect.top) +
+                                 ',' + Math.round(rect.width) + 'x' + Math.round(rect.height) +
+                                 ' href=' + (c.getAttribute('href') || '');
+                    log.push('  candidate: ' + info);
+
+                    // Skip the label text itself and non-visible elements
+                    if (c === label || c.contains(label) || label.contains(c) && c.tagName !== 'A') continue;
+                    if (rect.width === 0 && rect.height === 0) continue;
+
+                    // Click it — this is likely the pencil icon (an <a>, <svg>, or <span>)
+                    c.click();
+                    log.push('CLICKED: ' + info);
+                    return { clicked: true, method: 'container-search', element: info, log: log };
                 }
             }
-            return JSON.stringify(results, null, 2);
-        }""")
-        logger.info(f"Modal clickable elements dump: {modal_dump}")
-        # === END DIAGNOSTIC ===
 
-        # Multi-strategy click: the onboarding edit button is an SDF custom
-        # element that Playwright may not consider "visible" (zero-dimension
-        # <a> tag or shadow DOM wrapper).
-        onboarding_clicked = False
-
-        # Strategy 1: Original selector with state="attached" + JS click
-        try:
-            el = page.locator(ASSIGN_ONBOARDING_BUTTON)
-            await el.wait_for(state="attached", timeout=10000)
-            await el.evaluate("el => el.click()")
-            onboarding_clicked = True
-            logger.info("Onboarding button clicked via strategy 1 (original ID + JS click)")
-        except Exception as e:
-            logger.warning(f"Strategy 1 failed ({ASSIGN_ONBOARDING_BUTTON}): {e}")
-
-        # Strategy 2: Partial ID match with state="attached" + JS click
-        if not onboarding_clicked:
-            for alt_sel in [ASSIGN_ONBOARDING_BUTTON_ALT1, ASSIGN_ONBOARDING_BUTTON_ALT2]:
-                try:
-                    el = page.locator(alt_sel).first
-                    await el.wait_for(state="attached", timeout=5000)
-                    await el.evaluate("el => el.click()")
-                    onboarding_clicked = True
-                    logger.info(f"Onboarding button clicked via strategy 2 ({alt_sel})")
-                    break
-                except Exception as e:
-                    logger.warning(f"Strategy 2 failed ({alt_sel}): {e}")
-
-        # Strategy 3: Text-based — find pencil/edit icon near "Assign onboarding experience"
-        if not onboarding_clicked:
-            try:
-                el = page.locator("text=Assign onboarding experience").locator("..").locator("a, button, [role='button']").first
-                await el.wait_for(state="attached", timeout=5000)
-                await el.evaluate("el => el.click()")
-                onboarding_clicked = True
-                logger.info("Onboarding button clicked via strategy 3 (text-based)")
-            except Exception as e:
-                logger.warning(f"Strategy 3 failed (text-based): {e}")
-
-        # Strategy 4: JavaScript — find any clickable element within the onboarding section
-        if not onboarding_clicked:
-            try:
-                clicked = await page.evaluate("""() => {
-                    // Look for elements with 'assignedTemplate' in any attribute
-                    const byId = document.querySelector('[id*="assignedTemplate"]');
-                    if (byId) { byId.click(); return 'id-partial'; }
-                    // Look for clickable element near the "Assign onboarding" text
-                    const labels = document.querySelectorAll('*');
-                    for (const el of labels) {
-                        if (el.textContent && el.textContent.includes('Assign onboarding experience')
-                            && el.children.length < 5) {
-                            const clickable = el.querySelector('a, button, [role="button"], .edit-icon, [class*="edit"], [class*="pencil"]');
-                            if (clickable) { clickable.click(); return 'text-child'; }
-                            // Try clicking the parent area itself
-                            el.click();
-                            return 'text-parent';
-                        }
+            // Fallback: find "None" text near "Assign onboarding" and click it
+            log.push('Primary search failed, trying "None" text fallback');
+            const allElements = document.querySelectorAll('*');
+            for (const el of allElements) {
+                if (el.children.length > 3) continue;
+                const text = (el.textContent || '').trim();
+                if (text === 'None') {
+                    // Check if this "None" is near "Assign onboarding experience"
+                    const parent = el.parentElement;
+                    const grandparent = parent ? parent.parentElement : null;
+                    const context = (grandparent || parent || el).textContent || '';
+                    if (context.includes('Assign onboarding experience')) {
+                        const rect = el.getBoundingClientRect();
+                        const info = 'tag=' + el.tagName + ' id=' + (el.id || '') +
+                                     ' class=' + (String(el.className) || '').substring(0, 80) +
+                                     ' rect=' + Math.round(rect.left) + ',' + Math.round(rect.top);
+                        el.click();
+                        log.push('CLICKED "None" element: ' + info);
+                        return { clicked: true, method: 'none-text-click', element: info, log: log };
                     }
-                    return null;
-                }""")
-                if clicked:
-                    onboarding_clicked = True
-                    logger.info(f"Onboarding button clicked via strategy 4 (JS: {clicked})")
-                else:
-                    logger.warning("Strategy 4: no matching element found via JS")
-            except Exception as e:
-                logger.warning(f"Strategy 4 failed (JS): {e}")
+                }
+            }
 
-        if not onboarding_clicked:
-            # Capture diagnostic HTML dump for future debugging
+            log.push('All approaches failed');
+            return { clicked: false, method: null, element: null, log: log };
+        }""")
+        logger.info(f"Onboarding edit click result: {click_result}")
+
+        for line in click_result.get("log", []):
+            logger.info(f"  JS: {line}")
+
+        if not click_result.get("clicked"):
+            # Dump modal HTML for debugging
             try:
                 modal_html = await page.evaluate("""() => {
-                    const modal = document.querySelector('[class*="modal"], [class*="dialog"], [role="dialog"]');
-                    return modal ? modal.innerHTML.substring(0, 3000) : document.body.innerHTML.substring(0, 3000);
+                    const modal = document.querySelector(
+                        '[class*="modal"], [class*="dialog"], [role="dialog"]'
+                    );
+                    return modal ? modal.innerHTML.substring(0, 5000)
+                                 : document.body.innerHTML.substring(0, 5000);
                 }""")
-                logger.error(f"All onboarding strategies failed. Modal HTML (first 3000 chars): {modal_html}")
+                logger.error(f"Onboarding click failed. HTML dump: {modal_html}")
             except Exception:
                 pass
-            raise FormSubmissionError("Could not click 'Assign onboarding experience' button after 4 strategies")
+            raise FormSubmissionError(
+                "Could not click 'Assign onboarding experience' pencil icon"
+            )
 
-        # Wait for the onboarding experience assignment sub-page to load
-        await page.wait_for_timeout(2000)
+        # Wait for onboarding sub-page to load and confirm with screenshot
+        await page.wait_for_timeout(3000)
+        await capture_screenshot(page, "onboarding_after_pencil_click")
 
         # The onboarding template dropdown is an MDFSelectBox whose <input>
         # is hidden. The visible container div must be clicked to open the

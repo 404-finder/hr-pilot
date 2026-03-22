@@ -198,10 +198,15 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         #   1. Header button #ENHAssignOnboarding (y=-662, above viewport — ignore)
         #   2. Visible modal label + pencil icon (y>0 — this is the target)
         # Must filter by viewport visibility to avoid clicking the off-screen one.
-        clicked = await page.evaluate("""() => {
+        click_result = await page.evaluate("""() => {
+            const log = [];
             const isVisible = (el) => {
                 const r = el.getBoundingClientRect();
                 return r.top > -10 && r.top < window.innerHeight && r.width > 0 && r.height > 0;
+            };
+            const rect = (el) => {
+                const r = el.getBoundingClientRect();
+                return Math.round(r.left) + ',' + Math.round(r.top) + ',' + Math.round(r.width) + 'x' + Math.round(r.height);
             };
 
             // Find visible "Assign onboarding experience" label
@@ -210,18 +215,29 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
                 { acceptNode: n => n.textContent.includes('Assign onboarding experience')
                     ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT }
             );
+            const nodes = [];
             let node;
-            while ((node = walker.nextNode())) {
-                const label = node.parentElement;
-                if (!label || !isVisible(label)) continue;
+            while ((node = walker.nextNode())) nodes.push(node);
+            log.push('text_nodes=' + nodes.length);
+
+            for (const tn of nodes) {
+                const label = tn.parentElement;
+                if (!label) continue;
+                const vis = isVisible(label);
+                log.push('label tag=' + label.tagName + ' id=' + (label.id || '') +
+                         ' class=' + (String(label.className) || '').substring(0, 60) +
+                         ' rect=' + rect(label) + ' visible=' + vis);
+                if (!vis) continue;
 
                 // Strategy A: click visible parent button/link
                 const parentBtn = label.closest('button, a[href], [role="button"]');
                 if (parentBtn && isVisible(parentBtn)) {
+                    log.push('stratA: id=' + (parentBtn.id || '') + ' rect=' + rect(parentBtn));
                     parentBtn.scrollIntoView({block: 'center'});
                     parentBtn.click();
-                    return 'parent-button:' + (parentBtn.id || parentBtn.tagName);
+                    return { clicked: 'parent-button:' + (parentBtn.id || parentBtn.tagName), log: log };
                 }
+                log.push('stratA: no visible parent button');
 
                 // Strategy B: find visible sibling (pencil icon) within 3 levels
                 let container = label.parentElement;
@@ -232,21 +248,30 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
                     for (const c of children) {
                         if (c.contains(label) || label.contains(c)) continue;
                         if (!isVisible(c)) continue;
+                        log.push('stratB: depth=' + depth + ' id=' + (c.id || '') +
+                                 ' tag=' + c.tagName + ' class=' + (String(c.className) || '').substring(0, 60) +
+                                 ' rect=' + rect(c));
                         c.scrollIntoView({block: 'center'});
                         c.click();
-                        return 'sibling:' + (c.id || c.tagName);
+                        return { clicked: 'sibling:' + (c.id || c.tagName), log: log };
                     }
                     container = container.parentElement;
                 }
+                log.push('stratB: no visible sibling found');
             }
-            return null;
+
+            log.push('all strategies failed');
+            return { clicked: null, log: log };
         }""")
 
-        if not clicked:
+        for line in click_result.get("log", []):
+            logger.info(f"Onboarding click: {line}")
+
+        if not click_result.get("clicked"):
             raise FormSubmissionError(
                 "Could not click 'Assign onboarding experience' pencil icon"
             )
-        logger.info(f"Onboarding pencil icon clicked via {clicked}")
+        logger.info(f"Onboarding pencil icon clicked via {click_result['clicked']}")
 
         # Wait for onboarding sub-page slide-in to load
         await page.wait_for_timeout(3000)

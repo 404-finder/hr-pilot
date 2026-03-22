@@ -307,26 +307,53 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         await page.wait_for_timeout(2000)
 
         # The onboarding template dropdown is an MDFSelectBox whose <input>
-        # is hidden. Standard fill_mdf_dropdown fails (waits for visible).
-        # Fix: focus the hidden input via JS, type to open the menu, click option.
+        # is hidden. The visible container div must be clicked to open the
+        # dropdown menu — focusing the hidden input does not trigger React.
         ob_search_code = get_search_code(onboarding_experience)
         logger.info(f"Filling onboarding dropdown: search='{ob_search_code}', match='{onboarding_experience}'")
 
         await page.locator(ONBOARDING_TEMPLATE_SELECT).wait_for(state="attached", timeout=20000)
-        await page.evaluate("""() => {
+
+        # Click the visible MDFSelectBox container to open the dropdown.
+        # Walk up from the hidden input to find the __control div.
+        container_clicked = await page.evaluate("""() => {
             const input = document.querySelector('#onboardingTemplateId');
-            if (input) {
-                input.focus();
-                input.dispatchEvent(new Event('focus', {bubbles: true}));
+            if (!input) return 'no-input';
+            // Try .closest() for the control wrapper
+            const control = input.closest('[class*="MDFSelectBox__control"]');
+            if (control) { control.click(); return 'control'; }
+            // Walk up parents looking for the MDFSelectBox container
+            let el = input.parentElement;
+            for (let i = 0; i < 5 && el; i++) {
+                const cls = el.className || '';
+                if (cls.includes('MDFSelectBox')) { el.click(); return 'parent-' + i; }
+                el = el.parentElement;
             }
+            // Last resort: click the input's immediate parent
+            if (input.parentElement) { input.parentElement.click(); return 'direct-parent'; }
+            return 'nothing-found';
         }""")
+        logger.info(f"Onboarding dropdown container click result: {container_clicked}")
         await page.wait_for_timeout(500)
+
+        # Type search code via keyboard (dropdown should now be open/focused)
         await page.keyboard.type(ob_search_code)
         logger.debug(f"Typed '{ob_search_code}' into onboarding dropdown via keyboard")
         await page.wait_for_timeout(2000)
 
         ob_option = f'[class*="MDFSelectBox__option"]:has-text("{onboarding_experience}")'
-        await page.wait_for_selector(ob_option, timeout=20000)
+        try:
+            await page.wait_for_selector(ob_option, timeout=10000)
+        except Exception:
+            # Fallback: ArrowDown to force-open the menu, then retype
+            logger.warning("Options not visible after container click + type, trying ArrowDown fallback")
+            await page.keyboard.press("ArrowDown")
+            await page.wait_for_timeout(500)
+            await page.keyboard.press("Control+a")
+            await page.keyboard.type(ob_search_code)
+            await page.wait_for_timeout(2000)
+            await page.wait_for_selector(ob_option, timeout=20000)
+
         await page.click(ob_option)
         await page.wait_for_timeout(500)
         logger.info(f"Selected onboarding experience: {onboarding_experience}")

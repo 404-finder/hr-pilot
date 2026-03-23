@@ -308,20 +308,43 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         logger.info(f"Onboarding MDF dropdown: search='{ob_search_code}', match='{onboarding_experience}'")
 
         # Custom MDF interaction — #onboardingTemplateId is a hidden input inside
-        # the MDFSelectBox container. Playwright can't click it directly on VPS.
-        # Find the visible container div via JS closest() and click that instead.
+        # the MDFSelectBox container. React Select opens on mousedown, not click.
+        # Try multiple strategies to trigger the dropdown open state.
+        ob_input = page.locator(ONBOARDING_TEMPLATE_SELECT)
+
+        # Strategy 1: force-click the hidden input (triggers React focus handler)
+        try:
+            await ob_input.click(force=True, timeout=5000)
+            logger.info("Onboarding dropdown: force-click on input succeeded")
+        except Exception as e:
+            logger.info(f"Onboarding dropdown: force-click failed: {e}")
+
+        await page.wait_for_timeout(500)
+
+        # Strategy 2: dispatch focus + mousedown on the input (React Select
+        # listens for mousedown to open the menu, not click)
+        await ob_input.dispatch_event("focus")
+        logger.info("Onboarding dropdown: dispatched focus")
+        await ob_input.dispatch_event("mousedown")
+        logger.info("Onboarding dropdown: dispatched mousedown on input")
+        await page.wait_for_timeout(500)
+
+        # Strategy 3: dispatch mousedown on the MDFSelectBox container div
         await page.evaluate("""(selector) => {
             const input = document.querySelector(selector);
             if (input) {
                 const container = input.closest('[class*="MDFSelectBox"]')
                     || input.parentElement;
                 container.scrollIntoView({block: 'center'});
-                container.click();
+                container.dispatchEvent(new MouseEvent('mousedown', {bubbles: true}));
             }
         }""", ONBOARDING_TEMPLATE_SELECT)
+        logger.info("Onboarding dropdown: dispatched mousedown on container")
         await page.wait_for_timeout(500)
+
+        # Type search code and select matching option
         await page.keyboard.type(ob_search_code)
-        logger.info(f"Typed '{ob_search_code}' into onboarding dropdown")
+        logger.info(f"Onboarding dropdown: typed '{ob_search_code}'")
         await page.wait_for_timeout(1500)
         option_selector = f'[class*="MDFSelectBox__option"]:has-text("{onboarding_experience}")'
         await page.wait_for_selector(option_selector, timeout=20000)

@@ -199,13 +199,26 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         #   1. Header button #ENHAssignOnboarding (y=-662, above viewport — ignore)
         #   2. Visible modal label + pencil icon (y>0 — this is the target)
         # Must filter by viewport visibility to avoid clicking the off-screen one.
+
+        # Scroll the modal into view — on VPS both text nodes have zero dimensions
+        # because the modal panel is not scrolled into the viewport.
+        await page.evaluate(
+            "document.querySelector('#ENHAskNewhire, [class*=\"askNewHire\"], [class*=\"prehire\"]')"
+            "?.scrollIntoView({block: 'center'})"
+        )
+        try:
+            await page.locator("text=Assign onboarding experience").first.scroll_into_view_if_needed()
+        except Exception:
+            logger.info("Could not scroll 'Assign onboarding experience' into view")
+        await page.wait_for_timeout(1000)
+
         try:
             click_result = await asyncio.wait_for(
                 page.evaluate("""() => {
             const log = [];
             const isVisible = (el) => {
                 const r = el.getBoundingClientRect();
-                return r.top > -10 && r.top < window.innerHeight && r.width > 0 && r.height > 0;
+                return r.top >= -100 && r.top < window.innerHeight && r.width > 0 && r.height > 0;
             };
             const rect = (el) => {
                 const r = el.getBoundingClientRect();

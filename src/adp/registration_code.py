@@ -4,8 +4,6 @@ Registration code delivery automation.
 Sends personal registration codes to new hires via email.
 """
 
-import logging
-
 from playwright.async_api import Page
 
 from src.adp.exceptions import FormSubmissionError
@@ -18,9 +16,10 @@ from src.adp.selectors.new_hire import (
     PERSONAL_EMAIL_OPTION,
     SEARCH_BUTTON,
 )
+from src.utils.logger import setup_logger
 from src.utils.screenshots import capture_screenshot
 
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 
 async def send_registration_code(page: Page, associate_id: str, email: str) -> None:

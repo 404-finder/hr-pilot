@@ -4,8 +4,6 @@ ADP navigation utilities.
 Handles navigation through ADP menus and pages.
 """
 
-import logging
-
 from playwright.async_api import Page
 
 from src.adp.base_form import dismiss_pendo
@@ -20,9 +18,10 @@ from src.adp.selectors.new_hire import (
     SECURITY_MANAGEMENT_LINK,
     SETUP_MENU_BUTTON,
 )
+from src.utils.logger import setup_logger
 from src.utils.screenshots import capture_screenshot
 
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 
 async def _wait_for_process_button(page: Page) -> None:

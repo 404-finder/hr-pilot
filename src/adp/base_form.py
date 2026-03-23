@@ -4,12 +4,13 @@ Shared form-filling utilities for ADP automation.
 Provides reusable async functions for common form interactions.
 """
 
-import logging
 from typing import Optional
 
 from playwright.async_api import Page
 
-logger = logging.getLogger(__name__)
+from src.utils.logger import setup_logger
+
+logger = setup_logger(__name__)
 
 
 async def dismiss_pendo(page: Page) -> None:

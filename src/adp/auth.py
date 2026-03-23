@@ -5,7 +5,6 @@ Handles login/logout and session management for ADP Workforce Now.
 """
 
 import asyncio
-import logging
 from typing import Tuple
 
 from playwright.async_api import Browser, Page, async_playwright
@@ -20,8 +19,9 @@ from src.adp.selectors.login import (
     USERNAME_INPUT,
 )
 from src.config import settings
+from src.utils.logger import setup_logger
 
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 # Comprehensive stealth script injected BEFORE any page JS on every navigation.
 # context.add_init_script() persists across navigations — unlike page.evaluate()

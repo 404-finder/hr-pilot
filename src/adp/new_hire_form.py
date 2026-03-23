@@ -5,7 +5,6 @@ Fills out and submits the ADP new hire form with validated data.
 """
 
 import asyncio
-import logging
 
 from playwright.async_api import Page
 
@@ -65,9 +64,10 @@ from src.adp.selectors.new_hire import (
     WORKED_IN_STATE_SELECT,
 )
 from src.models.new_hire import NewHire
+from src.utils.logger import setup_logger
 from src.utils.screenshots import capture_screenshot
 
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 
 async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) -> dict:

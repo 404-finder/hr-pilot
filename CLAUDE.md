@@ -404,7 +404,7 @@ When ADP requires identity verification during login:
 | Component | Status | Notes |
 |---|---|---|
 | `src/config.py` | ✅ Working | Multi-user ADP credentials via numbered env vars; `get_adp_credentials(user_id)` |
-| `src/config_tables.py` | ✅ Working | Texas + Colorado stores, all dropdown mappings, helper functions |
+| `src/config_tables.py` | ✅ Working | Texas (3910x) + Colorado (3356x) stores, all dropdown mappings, helper functions |
 | `src/validators.py` | ✅ Working | Case-insensitive validation with friendly error messages |
 | `src/models/new_hire.py` | ✅ Working | Field validators for store, job title, work schedule |
 | `src/models/termination.py` | ✅ Working | Complete with validation |
@@ -412,7 +412,7 @@ When ADP requires identity verification during login:
 | `src/adp/auth.py` | ✅ Working | Login with retry, popup dismissal, stealth via `add_init_script`, MFA detection + SMS relay |
 | `src/adp/navigation.py` | ✅ Working | New hire, security management, registration codes; retry + diagnostics for Process button; Pendo dismissal |
 | `src/adp/base_form.py` | ✅ Working | `fill_mdf_dropdown`, `click_visible_next_button`, `dismiss_pendo`; all default timeouts 20s |
-| `src/adp/new_hire_form.py` | ✅ Working | Full form fill + Save & Exit tested end-to-end |
+| `src/adp/new_hire_form.py` | ✅ Working | Full form fill + Save & Exit tested end-to-end; custom onboarding dropdown handling |
 | `src/adp/registration_code.py` | ✅ Working | Tested end-to-end — registration code email delivered successfully |
 | `src/adp/exceptions.py` | ✅ Working | LoginError, FormSubmissionError, NavigationError, etc. |
 | `src/adp/selectors/login.py` | ✅ Verified | Real selectors from ADP |
@@ -423,10 +423,21 @@ When ADP requires identity verification during login:
 | `src/telegram_bot/handlers/common.py` | ✅ Working | /start, /help, /cancel, /debug, error handler |
 | `src/telegram_bot/handlers/new_hire.py` | ✅ Working | Dry-run → /confirm → submit + PRC flow; MFA code relay; auto-send screenshots on error |
 | `src/telegram_bot/handlers/termination.py` | ❌ Stub | "Not yet implemented" message |
-| `src/utils/logger.py` | ✅ Working | Console + rotating file handler |
+| `src/utils/logger.py` | ✅ Working | Console + rotating file handler; used via `setup_logger(__name__)` |
 | `src/utils/screenshots.py` | ✅ Working | Viewport screenshot capture (not full_page) with 60s timeout |
 | `tests/test_login_nav.py` | ✅ Working | Login + full navigation test |
 | `tests/test_form_fill.py` | ✅ Working | Full dry-run test with test data |
+
+### ✅ Completed Features
+
+| Feature | Notes |
+|---|---|
+| MFA handling | Auto-detect, SMS trigger, Telegram relay, code entry — works from VPS |
+| Colorado stores (33561-33567) | All 7 stores configured; manager = Caleb Urrutia |
+| Multi-user ADP credentials | Per-user via numbered env vars; routed by Telegram user ID |
+| VPS deployment with systemd | DigitalOcean SFO3, Ubuntu 24.04, user `big-al`, `hr-pilot.service` |
+| Headless Chromium stealth | `STEALTH_JS` via `context.add_init_script()` — 6 detection vectors covered |
+| Logging with setup_logger() | All `src/adp/` modules use `setup_logger(__name__)` — outputs to console + file |
 
 ### 🔧 Known Bugs / In Progress
 
@@ -442,6 +453,16 @@ When ADP requires identity verification during login:
 ---
 
 ## 🔑 Key Learnings & Critical Notes
+
+### Logging (CRITICAL)
+- All `src/adp/` modules MUST use `from src.utils.logger import setup_logger` then `logger = setup_logger(__name__)`
+- Do NOT use `logging.getLogger(__name__)` — it creates a logger with no handlers, so all log output is silently dropped (invisible in `journalctl`)
+- `setup_logger()` adds console handler + rotating file handler (`logs/hr_pilot.log`) with `asctime | name | level | message` format
+
+### __pycache__ on VPS (CRITICAL)
+- After every `git pull` on VPS, clear `__pycache__`: `find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null`
+- Stale `.pyc` bytecode files cause Python to use old code even after pulling new source files
+- Symptom: changes don't take effect after deploy, old behavior persists
 
 ### Running Tests
 - **ALWAYS use virtual environment**: `.venv/Scripts/python.exe tests/test_form_fill.py`
@@ -473,12 +494,17 @@ When ADP requires identity verification during login:
 
 ### Onboarding Experience Pencil Icon (CRITICAL — Fixed 2026-03-22)
 - The pencil/edit icon is `SDF-BUTTON#assignedTemplateName_Id` — a 14x16px Font Awesome icon (`fa fa-pencil`) next to "None" text
-- **Two "Assign onboarding experience" elements exist in the DOM**: one in the header (`#ENHAssignOnboarding` at y=-662, above viewport) and one in the visible modal content (y>0)
-- Playwright's `waitForSelector` finds the off-screen header button first — clicking it does nothing because ADP ignores clicks on non-visible elements
-- **Fix**: JS `page.evaluate()` with `isVisible()` filter (`r.top > -10 && r.top < window.innerHeight`) skips the off-screen duplicate
+- **Two "Assign onboarding experience" elements exist in the DOM**: one in the header (`#ENHAssignOnboarding` at y=-657, above viewport) and one in the visible modal content. On VPS, both can have zero dimensions if the modal isn't scrolled into view
+- **Pre-scroll fix**: Before the pencil click, scroll `#ENHAskNewhire` / `[class*="askNewHire"]` / `[class*="prehire"]` into view, then scroll `text=Assign onboarding experience` into view, then wait 1s
+- **Fix**: JS `page.evaluate()` with `isVisible()` filter (`r.top >= -100 && r.top < window.innerHeight`) skips the off-screen duplicate. Wrapped in `asyncio.wait_for(timeout=15)` to prevent hanging
 - Strategy A: click visible parent button/link of the label. Strategy B: walk up 2-3 levels to find a visible sibling (the pencil icon)
-- The onboarding experience dropdown inside the sub-page slide-in (`#showTemplateSlideIn_Id`) is an **MDFSelectBox** (`#onboardingTemplateId`), NOT a standard `<select>` — use `fill_mdf_dropdown()` as normal
-- After selection: click `#ENHAssignOBExp` (Assign button) then `#back-button-with-label` (Back) to return to the modal
+
+### Onboarding Experience Dropdown (CRITICAL — Fixed 2026-03-22)
+- The dropdown inside the sub-page slide-in (`#showTemplateSlideIn_Id`) is an **MDFSelectBox** (`#onboardingTemplateId`), but the input element is **hidden** — Playwright can't click it directly
+- `fill_mdf_dropdown()` does NOT work for this dropdown (works for all others)
+- **Fix**: Custom interaction sequence — force-click hidden input, dispatch `focus` + `mousedown` on input, dispatch `mousedown` (with `bubbles: true`) on the MDFSelectBox container via JS `closest()`. React Select opens on `mousedown`, not `click`
+- After opening: `page.keyboard.type()` to search, then click matching `MDFSelectBox__option`
+- **Assign and Back buttons** (`#ENHAssignOBExp`, `#back-button-with-label`) are blocked by a background div intercepting pointer events — use `locator.evaluate("el => el.click()")` to bypass
 
 ### ADP MDFSelectBox Dropdowns (CRITICAL)
 - Most ADP dropdowns use **MDFSelectBox** React Select — NOT standard `<select>` elements
@@ -526,11 +552,13 @@ When ADP requires identity verification during login:
 - **Workaround**: log out of ADP before running the bot, or wait for the manual session to expire
 
 ### MFA Handling (Verified & Working 2026-03-22)
+- **VPS always triggers MFA** — ADP sees unrecognized IP (DigitalOcean SFO3 datacenter) and requires identity verification on every login
 - Detection: `h1:has-text('Verify Your Identity')` — must use `h1` specifically; `text=Verify Your Identity` matches 2 elements (h1 + span)
 - SMS trigger: `page.locator("text=Send me a text message").click()`
 - Code input: `page.get_by_label("Passcode")`
 - Submit: progressive approach — `get_by_role("button", name="Submit")`, then `[type='submit']`, then `text=Submit`
 - Full flow: `auth.py` detects MFA → triggers SMS → returns `mfa_required=True` → handler prompts user via Telegram → user replies with code → handler fills passcode + submits → continues to dashboard
+- MFA auto-cancel timeout: 3 minutes; if user doesn't reply, browser is closed
 
 ### Headless Browser Detection (VPS / Production) — CRITICAL
 - ADP detects headless Chromium and serves a different login page layout or blocks navigation entirely
@@ -547,9 +575,14 @@ When ADP requires identity verification during login:
 - Playwright 1.40+ uses `--headless=new` mode by default — no explicit flag needed
 
 ### VPS Deployment (DigitalOcean — Working 2026-03-22)
-- **Platform**: DigitalOcean droplet, Ubuntu 24.04
-- **Service management**: systemd service for the Telegram bot
+- **Platform**: DigitalOcean droplet, Ubuntu 24.04, SFO3 region
+- **User**: non-root user `big-al`, SSH key auth, UFW firewall enabled
+- **SSH access**: `ssh hr-pilot` via `~/.ssh/config` alias on local machine
+- **Service**: systemd unit `hr-pilot.service` — `sudo systemctl restart hr-pilot`, `journalctl -u hr-pilot -f`
+- **Deploy routine**: `ssh hr-pilot` → `cd /home/big-al/hr-pilot && git pull && find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null; sudo systemctl restart hr-pilot`
+- **__pycache__ clearing**: MUST clear after every `git pull` — stale `.pyc` files cause imports to use old code even after pulling new changes
 - **All base_form.py utility defaults**: 20000ms — VPS is consistently slower than local dev
+- **MFA from VPS**: ADP triggers MFA on every login from VPS due to unrecognized IP (SFO3 datacenter). Bot handles this automatically via Telegram relay
 - **Pendo overlay dismissal**: `dismiss_pendo()` in `base_form.py` called after login and before Process button click; tries close buttons, falls back to JS removal
 - **Validation popups**: "Go to Next Section" handled with combined `.or_()` locator (3 fallback selectors) + 20s timeout after Personal and Employment sections
 
@@ -618,8 +651,11 @@ When ADP requires identity verification during login:
 | Screenshot times out | `full_page=False` (viewport only) + 60s timeout; ADP full-page never stabilizes |
 | Form field visible but times out | ADP re-renders DOM after dropdown selections; add settle waits + increase timeout |
 | Reports To search input times out | Slider animation on VPS — add 3s wait after clicking Reports To button; element resolves visible but flickers during animation |
-| Onboarding pencil icon click does nothing | Two DOM elements match — off-screen header button at y=-662 gets clicked instead. Use JS `isVisible()` filter to skip off-screen elements |
-| Onboarding dropdown not working | It's an MDFSelectBox (`#onboardingTemplateId`), not a `<select>`. Use `fill_mdf_dropdown()` |
+| Onboarding pencil icon click does nothing | Two DOM elements match — off-screen header button at y=-657 gets clicked instead. Pre-scroll modal into view, then use JS `isVisible()` filter (y >= -100) to skip off-screen elements |
+| Onboarding dropdown not working | `#onboardingTemplateId` is a hidden MDFSelectBox input. `fill_mdf_dropdown()` can't click it. Use custom sequence: force-click input, dispatch focus + mousedown on input and container, then `keyboard.type()` to search |
+| Onboarding Assign/Back button blocked | Background div intercepts pointer events on `#ENHAssignOBExp` and `#back-button-with-label`. Use `locator.evaluate("el => el.click()")` |
+| Logs not appearing in journalctl | Module uses `logging.getLogger(__name__)` instead of `setup_logger(__name__)`. Fix: import and use `setup_logger` from `src/utils/logger` |
+| Changes not taking effect after deploy | Stale `__pycache__` — clear with `find . -type d -name __pycache__ -exec rm -rf {} +` after `git pull` |
 
 ---
 

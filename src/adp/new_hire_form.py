@@ -4,6 +4,7 @@ New hire form automation.
 Fills out and submits the ADP new hire form with validated data.
 """
 
+import asyncio
 import logging
 
 from playwright.async_api import Page
@@ -199,7 +200,8 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         #   2. Visible modal label + pencil icon (y>0 — this is the target)
         # Must filter by viewport visibility to avoid clicking the off-screen one.
         try:
-            click_result = await page.evaluate("""() => {
+            click_result = await asyncio.wait_for(
+                page.evaluate("""() => {
             const log = [];
             const isVisible = (el) => {
                 const r = el.getBoundingClientRect();
@@ -263,7 +265,12 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
 
             log.push('all strategies failed');
             return { clicked: null, log: log };
-        }""")
+        }"""),
+                timeout=15
+            )
+        except asyncio.TimeoutError:
+            logger.error("Onboarding pencil JS evaluate timed out after 15s")
+            click_result = {"clicked": None, "log": ["JS evaluate timed out"]}
         except Exception as e:
             logger.error(f"Onboarding pencil JS evaluate failed: {e}")
             click_result = {"clicked": None, "log": [f"JS exception: {str(e)}"]}

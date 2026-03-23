@@ -306,9 +306,27 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
 
         ob_search_code = get_search_code(onboarding_experience)
         logger.info(f"Onboarding MDF dropdown: search='{ob_search_code}', match='{onboarding_experience}'")
-        await fill_mdf_dropdown(
-            page, ONBOARDING_TEMPLATE_SELECT, ob_search_code, onboarding_experience
-        )
+
+        # Custom MDF interaction — #onboardingTemplateId is a hidden input inside
+        # the MDFSelectBox container. Playwright can't click it directly on VPS.
+        # Find the visible container div via JS closest() and click that instead.
+        await page.evaluate("""(selector) => {
+            const input = document.querySelector(selector);
+            if (input) {
+                const container = input.closest('[class*="MDFSelectBox"]')
+                    || input.parentElement;
+                container.scrollIntoView({block: 'center'});
+                container.click();
+            }
+        }""", ONBOARDING_TEMPLATE_SELECT)
+        await page.wait_for_timeout(500)
+        await page.keyboard.type(ob_search_code)
+        logger.info(f"Typed '{ob_search_code}' into onboarding dropdown")
+        await page.wait_for_timeout(1500)
+        option_selector = f'[class*="MDFSelectBox__option"]:has-text("{onboarding_experience}")'
+        await page.wait_for_selector(option_selector, timeout=20000)
+        await page.click(option_selector)
+        await page.wait_for_timeout(500)
         logger.info(f"Selected onboarding experience: {onboarding_experience}")
 
         # Click "Assign" button then "Back" to return to the modal

@@ -198,7 +198,8 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         #   1. Header button #ENHAssignOnboarding (y=-662, above viewport — ignore)
         #   2. Visible modal label + pencil icon (y>0 — this is the target)
         # Must filter by viewport visibility to avoid clicking the off-screen one.
-        click_result = await page.evaluate("""() => {
+        try:
+            click_result = await page.evaluate("""() => {
             const log = [];
             const isVisible = (el) => {
                 const r = el.getBoundingClientRect();
@@ -263,6 +264,9 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
             log.push('all strategies failed');
             return { clicked: null, log: log };
         }""")
+        except Exception as e:
+            logger.error(f"Onboarding pencil JS evaluate failed: {e}")
+            click_result = {"clicked": None, "log": [f"JS exception: {str(e)}"]}
 
         for line in click_result.get("log", []):
             logger.info(f"Onboarding click: {line}")

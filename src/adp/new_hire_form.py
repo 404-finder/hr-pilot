@@ -354,10 +354,10 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
 
         # Click "Assign" button then "Back" to return to the modal
         await page.wait_for_selector(ASSIGN_EXP_BUTTON, timeout=20000)
-        await page.click(ASSIGN_EXP_BUTTON)
+        await page.locator(ASSIGN_EXP_BUTTON).evaluate("el => el.click()")
         await page.wait_for_timeout(1000)
         await page.wait_for_selector(BACK_BUTTON, timeout=20000)
-        await page.click(BACK_BUTTON)
+        await page.locator(BACK_BUTTON).evaluate("el => el.click()")
         logger.info(f"Assigned onboarding experience: {onboarding_experience}")
 
         # Select Worked In State (from store config)

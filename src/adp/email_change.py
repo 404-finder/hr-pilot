@@ -58,8 +58,8 @@ async def update_inprogress_email(
         # CLICK IN-PROGRESS HIRES TAB
         # ==================================================================
         logger.info("Clicking In-Progress Hires tab")
-        await page.wait_for_selector(IN_PROGRESS_TAB, timeout=20000)
-        await page.click(IN_PROGRESS_TAB)
+        await page.wait_for_timeout(5000)
+        await page.locator(IN_PROGRESS_TAB).click(timeout=30000)
         await page.wait_for_timeout(3000)
 
         # ==================================================================

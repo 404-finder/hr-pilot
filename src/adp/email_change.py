@@ -9,11 +9,13 @@ from playwright.async_api import Page
 
 from src.adp.base_form import dismiss_pendo, fill_text_field
 from src.adp.exceptions import FormSubmissionError
-from src.adp.navigation import navigate_to_new_hire
 from src.adp.selectors.new_hire import (
+    GO_TO_HIRE_BUTTON,
+    HIRE_REHIRE_LINK,
     IN_PROGRESS_SEARCH,
     IN_PROGRESS_TAB,
     PERSONAL_EMAIL_INPUT,
+    PROCESS_MENU_BUTTON,
     SAVE_AND_EXIT_BUTTON,
 )
 from src.utils.logger import setup_logger
@@ -49,16 +51,33 @@ async def update_inprogress_email(
         await dismiss_pendo(page)
 
         # ==================================================================
-        # NAVIGATE TO HIRE/REHIRE PAGE
+        # NAVIGATE TO HIRE PAGE (stop before HR PR New Hires card)
         # ==================================================================
-        logger.info("Navigating to Hire/Rehire page")
-        await navigate_to_new_hire(page)
+        logger.info("Navigating to Hire page")
+
+        await page.wait_for_load_state("domcontentloaded")
+        await page.wait_for_timeout(15000)
+
+        logger.info("Clicking Process menu")
+        await page.wait_for_selector(PROCESS_MENU_BUTTON, timeout=20000)
+        await dismiss_pendo(page)
+        await page.click(PROCESS_MENU_BUTTON)
+
+        logger.info("Clicking Hire/Rehire link")
+        await page.wait_for_selector(HIRE_REHIRE_LINK, timeout=20000)
+        await page.click(HIRE_REHIRE_LINK)
+
+        logger.info("Clicking Go to Hire button")
+        await page.wait_for_selector(GO_TO_HIRE_BUTTON, timeout=20000)
+        await page.click(GO_TO_HIRE_BUTTON)
+
+        # Wait for Hire page with tabs to load
+        await page.wait_for_timeout(5000)
 
         # ==================================================================
         # CLICK IN-PROGRESS HIRES TAB
         # ==================================================================
         logger.info("Clicking In-Progress Hires tab")
-        await page.wait_for_timeout(5000)
         await page.locator(IN_PROGRESS_TAB).click(timeout=30000)
         await page.wait_for_timeout(3000)
 

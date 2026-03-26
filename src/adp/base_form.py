@@ -23,7 +23,8 @@ async def dismiss_pendo(page: Page) -> None:
         page: Playwright page object.
     """
     try:
-        if not await page.locator("[id^='pendo-']").first.is_visible():
+        # if not await page.locator("[id^='pendo-']").first.is_visible():
+        if await page.locator("[id^='pendo-']").count() == 0:
             return
 
         logger.info("Pendo overlay detected — attempting dismissal")
@@ -48,7 +49,9 @@ async def dismiss_pendo(page: Page) -> None:
         pass  # No Pendo overlay present
 
 
-async def fill_text_field(page: Page, selector: str, value: str, timeout: int = 20000) -> None:
+async def fill_text_field(
+    page: Page, selector: str, value: str, timeout: int = 20000
+) -> None:
     """Clear and fill a text input field.
 
     Args:
@@ -63,7 +66,9 @@ async def fill_text_field(page: Page, selector: str, value: str, timeout: int = 
     logger.debug(f"Filled text field {selector} with value")
 
 
-async def select_dropdown(page: Page, selector: str, value: str, timeout: int = 20000) -> None:
+async def select_dropdown(
+    page: Page, selector: str, value: str, timeout: int = 20000
+) -> None:
     """Select an option from a dropdown by visible text.
 
     Args:
@@ -77,7 +82,9 @@ async def select_dropdown(page: Page, selector: str, value: str, timeout: int = 
     logger.debug(f"Selected dropdown {selector} with value: {value}")
 
 
-async def fill_date_field(page: Page, selector: str, date_str: str, timeout: int = 20000) -> None:
+async def fill_date_field(
+    page: Page, selector: str, date_str: str, timeout: int = 20000
+) -> None:
     """Fill a date picker field (MM/DD/YYYY format).
 
     Args:
@@ -93,7 +100,9 @@ async def fill_date_field(page: Page, selector: str, date_str: str, timeout: int
     logger.debug(f"Filled date field {selector} with: {date_str}")
 
 
-async def click_checkbox(page: Page, selector: str, should_check: bool, timeout: int = 20000) -> None:
+async def click_checkbox(
+    page: Page, selector: str, should_check: bool, timeout: int = 20000
+) -> None:
     """Set a checkbox to checked or unchecked.
 
     Args:
@@ -182,7 +191,7 @@ async def click_visible_next_button(page: Page, timeout: int = 20000) -> None:
     start = page._impl_obj._loop.time()
     deadline = start + timeout / 1000
     while True:
-        clicked = await page.evaluate('''() => {
+        clicked = await page.evaluate("""() => {
             const buttons = Array.from(document.querySelectorAll("button.vdl-button--primary"));
             const btn = buttons.find(b =>
                 b.textContent.trim() === "Next" &&
@@ -191,7 +200,7 @@ async def click_visible_next_button(page: Page, timeout: int = 20000) -> None:
             );
             if (btn) { btn.click(); return true; }
             return false;
-        }''')
+        }""")
         if clicked:
             logger.debug("Clicked visible primary Next button")
             return
@@ -201,10 +210,7 @@ async def click_visible_next_button(page: Page, timeout: int = 20000) -> None:
 
 
 async def fill_react_dropdown(
-    page: Page,
-    selector: str,
-    value: str,
-    timeout: int = 20000
+    page: Page, selector: str, value: str, timeout: int = 20000
 ) -> None:
     """Fill a React Select dropdown by clicking, typing, and pressing Enter.
 

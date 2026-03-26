@@ -106,11 +106,11 @@ async def update_inprogress_email(
         # ==================================================================
         logger.info("Scraping Associate ID")
         try:
-            associate_id = await page.locator(
-                "div.headerLabelStyle:has-text('Associate ID')"
-            ).locator(
-                "xpath=following-sibling::div"
-            ).first.inner_text()
+            associate_id = (
+                await page.locator("div.headerLabelStyle:has-text('Associate ID')")
+                .locator("xpath=following-sibling::div")
+                .first.inner_text()
+            )
             associate_id = associate_id.strip()
             logger.info(f"Captured Associate ID: {associate_id}")
         except Exception as e:
@@ -172,7 +172,9 @@ if __name__ == "__main__":
     import os
     import sys
 
-    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+    sys.path.insert(
+        0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    )
 
     from src.adp.auth import login_to_adp
     from src.config import settings
@@ -203,7 +205,9 @@ if __name__ == "__main__":
                 except Exception:
                     await page.locator("[type='submit']").click()
                 print("[MFA] Submitted, waiting for dashboard...")
-                await page.wait_for_url("https://workforcenow.adp.com/**", timeout=30000)
+                await page.wait_for_url(
+                    "https://workforcenow.adp.com/**", timeout=30000
+                )
                 await page.wait_for_load_state("domcontentloaded")
                 print("[OK] Dashboard loaded after MFA")
 
@@ -211,9 +215,9 @@ if __name__ == "__main__":
             print("\n[2] Updating in-progress hire email...")
             result = await update_inprogress_email(
                 page,
-                first_name="REPLACE",
-                last_name="REPLACE",
-                new_email="REPLACE@example.com",
+                first_name="Ibrahim",
+                last_name="Testme",
+                new_email="charles.annex830@slmails.com",
             )
 
             print("\n" + "=" * 60)
@@ -228,6 +232,7 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"\n[FAIL] {e}")
             import traceback
+
             traceback.print_exc()
             input("\nPress Enter to close browser...")
 

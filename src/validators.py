@@ -150,3 +150,26 @@ def validate_new_hire_input(data: dict) -> List[str]:
             )
 
     return errors
+
+
+def validate_email_change_input(data: dict) -> tuple:
+    """Validate email change input data.
+
+    Args:
+        data: Raw parsed dict with keys: first_name, last_name, new_email.
+
+    Returns:
+        (True, None) on success, or (False, error_message) on failure.
+    """
+    required_fields = ["first_name", "last_name", "new_email"]
+
+    for field in required_fields:
+        if not data.get(field, "").strip():
+            label = field.replace("_", " ").title()
+            return (False, f"Missing required field: {label}")
+
+    email = data["new_email"].strip()
+    if "@" not in email or "." not in email:
+        return (False, "New Email must be a valid email address (must contain @ and .)")
+
+    return (True, None)

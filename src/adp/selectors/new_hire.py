@@ -137,6 +137,13 @@ DD_NEXT_BUTTON = 'button[name="ddNext"]'
 EMERGENCY_CONTACT_NEXT_BUTTON = 'button.vdl-button--primary:has-text("Next")'
 
 # ============================================================================
+# IN-PROGRESS HIRES / EMAIL CHANGE
+# ============================================================================
+
+IN_PROGRESS_TAB = 'li[role="tab"]:has-text("In-Progress Hires")'
+IN_PROGRESS_SEARCH = '#searchInProgressValue'
+
+# ============================================================================
 # SAVE AND EXIT
 # ============================================================================
 
@@ -176,3 +183,7 @@ WORK_EMAIL_OPTION = '#picWorkEmailMenuItem'
 VIEW_CODES_OPTION = '#picWorkOnScreenMenuItem'
 CONFIRMATION_YES_BUTTON = 'span[role="button"]:has(span.dijitButtonText:has-text("Yes"))'
 CONFIRMATION_YES_BUTTON_ALT = 'span.dijitButtonText:has-text("Yes")'
+
+# PRC email update selectors
+PRC_SAVE_CHANGES = '#tableGridSaveButton'
+PRC_PERSONAL_COLUMN_HEADER = '#tableGrid_header_3'

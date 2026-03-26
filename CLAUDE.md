@@ -671,3 +671,154 @@ When ADP requires identity verification during login:
 - **Scheduling**: Queue submissions for off-peak hours
 - **Audit trail**: Log all automation runs to file or database
 - **ADP API integration**: Replace browser automation if API access becomes available
+
+# CLAUDE.md Additions for /changeemail Feature
+
+---
+
+## 1. Add to Supported Workflows table (line ~22)
+
+Add this row:
+
+```
+| `/changeemail` | Update Email + Re-send PRC | Update email on in-progress hire and re-send registration code |
+```
+
+---
+
+## 2. Add Telegram Message Format (after the `/terminate` format block, ~line 187)
+
+```markdown
+### `/changeemail` Command
+
+\```
+/changeemail
+First Name: Eurielle
+Last Name: Campos
+New Email: newemail@example.com
+\```
+```
+
+---
+
+## 3. Add to Completed Components table (after handlers/new_hire.py row, ~line 424)
+
+```
+| `src/adp/email_change.py` | ❌ TODO | Phase 1: open in-progress hire, update email, scrape Associate ID |
+| `src/telegram_bot/handlers/email_change.py` | ❌ TODO | /changeemail handler with dual MFA + confirm flow |
+```
+
+---
+
+## 4. Replace Known Bugs / In Progress section (line ~442)
+
+```markdown
+### 🔧 Known Bugs / In Progress
+
+1. **"Did you start this hire already?" popup** — ADP shows `#showInProgressActiveEmpInfo_Id` if prior in-progress hire exists; needs dismissal logic at start of `fill_new_hire_form()`
+2. **`/changeemail` workflow (HIGH PRIORITY)** — New hires sometimes lose access to or provide incorrect email, blocking onboarding. Need `/changeemail` command to update email in two places (in-progress hire form + PRC page) and re-send registration code. See `/changeemail` Workflow section below for full plan.
+```
+
+---
+
+## 5. Replace Next Steps section (line ~446)
+
+```markdown
+### 🎯 Next Steps
+
+1. **Implement `/changeemail` workflow** (HIGH PRIORITY) — unblocks onboarding for hires with wrong email
+2. Handle "Did you start this hire already?" popup
+3. Implement termination workflow
+4. Dry run cleanup (cancel form to prevent in-progress accumulation)
+5. Browser session persistence (save cookies to skip MFA on subsequent runs)
+```
+
+---
+
+## 6. Add new section: `/changeemail` Workflow (insert before "Key Learnings & Critical Notes", ~line 453)
+
+```markdown
+### `/changeemail` Workflow
+
+**Command format:**
+\```
+/changeemail
+First Name: Eurielle
+Last Name: Campos
+New Email: newemail@example.com
+\```
+
+**Phase 1: Update In-Progress Hire (new file: `src/adp/email_change.py`)**
+
+1. Login to ADP (reuse `auth.py` — MFA handled via Telegram relay)
+2. Navigate: Process → Hire/Rehire → Go to Hire
+3. Click In-Progress Hires tab: `li[role="tab"]:has-text("In-Progress Hires")`
+4. Search by last name in `#searchInProgressValue`
+5. Click matching name: `sdf-button:has(wfn-text:has-text("{last_name}"))`
+6. Update `#homeEmail` with new email via `fill_text_field()`
+7. Scrape Associate ID from Personal section (read-only div near "Associate ID" label — no stable ID, locate by adjacent label text)
+8. Click `#ENHSaveAndExit`
+9. Return `{"associate_id": str, "new_email": str}`
+
+**Phase 2: Update PRC Page Email (modify: `src/adp/registration_code.py`)**
+
+1. Navigate: Setup → Security Management → People → Personal Registration Codes
+2. Search by Associate ID in `#empId`
+3. Edit email in "Personal" column input (under `th#tableGrid_header_3` — Dojo dynamic ID on input, locate by column position)
+4. Click "Save Changes": `#tableGridSaveButton`
+5. **MFA triggers** — "Send me a text" verification (Dojo framework MFA, different from login MFA)
+6. Relay MFA code via Telegram (must distinguish from login MFA in user-facing message)
+7. Complete MFA
+
+**Phase 3: Re-send Registration Code**
+
+1. Bot sends Telegram message: "Email updated successfully. Send new registration code? /confirm or /cancel"
+2. On `/confirm` → existing PRC flow: checkbox → Issue PRC → Personal Email Address → Yes
+3. On `/cancel` → close browser
+
+**Key implementation notes:**
+- **Dual MFA:** Login MFA + PRC save MFA may both trigger in one run. Telegram messages must clearly distinguish which code is being requested
+- **Associate ID scraped, not user-provided:** Bot reads it from the Personal section during Phase 1; user only provides first name, last name, new email
+- **In-Progress Hires search:** Does NOT support Associate ID lookup — must search by last name. First 4 chars of first or last name is the minimum for partial match
+- **Name link has double space:** `sdf-button[title="Campos,  Eurielle"]` — two spaces after comma in title attribute. Use text-based selector instead
+- **PRC email field has dynamic Dojo ID:** `revit_form_ValidationTextBox_3` will change between sessions. Locate input by column position under `th#tableGrid_header_3` ("Personal" header)
+- **PRC save triggers MFA independently:** Clicking `#tableGridSaveButton` ("Save Changes") on PRC page triggers its own "Send me a text" verification flow
+- **Auto-cancel timeout:** 5 minutes overall, 3 minutes for each MFA prompt
+```
+
+---
+
+## 7. Add to Key Learnings section (~line 455+)
+
+```markdown
+### In-Progress Hires Navigation
+- Tab selector: `li[role="tab"]:has-text("In-Progress Hires")` — text-based handles dynamic count like "(24)"
+- Search input: `#searchInProgressValue` — accepts first name, last name, or partial (min 4 chars). Does NOT accept Associate ID
+- Hire name link: `sdf-button:has(wfn-text:has-text("{last_name}"))` — note double space in title attribute after comma
+- Opens same Personal section form — all existing selectors (`#homeEmail`, `#ENHSaveAndExit`) are reusable
+- Associate ID displayed as read-only div (no stable selector) — locate by adjacent "Associate ID" label text
+
+### PRC Page Email Update (Dojo Framework)
+- Email input is in the "Personal" column (`th#tableGrid_header_3`) — input ID is dynamic Dojo (`revit_form_ValidationTextBox_3` etc.), locate by column position
+- Must click `#tableGridSaveButton` ("Save Changes") after editing email — this triggers a separate MFA verification
+- MFA on PRC page uses same "Send me a text" pattern but is independent from login MFA
+- After MFA completes, must still manually issue PRC via existing flow (checkbox → Issue PRC → Personal Email Address → Yes)
+```
+
+---
+
+## 8. Add to Troubleshooting table
+
+```
+| In-Progress Hires search returns no results | Use last name (not Associate ID). Minimum 4 characters for partial match |
+| PRC email field not updating | Dojo input ID is dynamic — don't use `revit_form_ValidationTextBox_3` directly. Locate by column position under `th#tableGrid_header_3` |
+| Two MFA prompts in one /changeemail run | Expected behavior — login MFA + PRC save MFA. Bot must clearly label each Telegram prompt |
+```
+
+---
+
+## 9. Add to Future Enhancements
+
+```
+- **Email change for activated hires**: Extend `/changeemail` to handle hires that have already been activated (not just in-progress)
+```

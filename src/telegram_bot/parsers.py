@@ -121,6 +121,47 @@ def parse_new_hire(text: str) -> NewHire:
         raise ValueError(f"Invalid field value: {e}")
 
 
+def parse_email_change_raw(text: str) -> Dict[str, str]:
+    """Parse a /changeemail message into a raw key-value dict.
+
+    Expected format:
+        /changeemail
+        First Name: Eurielle
+        Last Name: Campos
+        New Email: newemail@example.com
+
+    Args:
+        text: The full message text from Telegram.
+
+    Returns:
+        Dict with normalized keys and trimmed values.
+
+    Examples:
+        >>> parse_email_change_raw("/changeemail\\nFirst Name: Eurielle\\nLast Name: Campos\\nNew Email: test@x.com")
+        {"first_name": "Eurielle", "last_name": "Campos", "new_email": "test@x.com"}
+    """
+    lines = text.strip().split("\n")
+    data = {}
+
+    field_mapping = {
+        "first name": "first_name",
+        "last name": "last_name",
+        "new email": "new_email",
+    }
+
+    # Skip the first line (/changeemail command)
+    for line in lines[1:]:
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        key_lower = key.strip().lower()
+        normalized_key = field_mapping.get(key_lower)
+        if normalized_key:
+            data[normalized_key] = value.strip()
+
+    return data
+
+
 def parse_termination(text: str) -> Termination:
     """Parse a /terminate message into a Termination model.
 

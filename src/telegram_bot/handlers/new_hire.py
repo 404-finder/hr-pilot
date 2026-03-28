@@ -5,7 +5,6 @@ Handles /newhire command with dry-run preview and /confirm to submit.
 """
 
 import glob
-import logging
 import os
 
 from telegram import Update
@@ -18,10 +17,11 @@ from src.adp.registration_code import send_registration_code
 from src.adp.selectors.new_hire import SAVE_AND_EXIT_BUTTON
 from src.config import settings
 from src.telegram_bot.parsers import parse_new_hire, parse_new_hire_raw
+from src.utils.logger import setup_logger
 from src.utils.screenshots import capture_screenshot
 from src.validators import validate_new_hire_input
 
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 
 async def _run_new_hire_flow(
@@ -470,10 +470,19 @@ async def handle_mfa_code(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         from src.adp.base_form import dismiss_pendo
         await dismiss_pendo(page)
 
-        await update.message.reply_text(
-            "Identity verified. Continuing with new hire form..."
-        )
-        logger.info("MFA verified — proceeding with new hire flow")
+        # Determine which flow triggered MFA
+        check_status_params = context.user_data.get("check_status_params")
+
+        if check_status_params:
+            await update.message.reply_text(
+                "Identity verified. Continuing with status check..."
+            )
+            logger.info("MFA verified — proceeding with check status flow")
+        else:
+            await update.message.reply_text(
+                "Identity verified. Continuing with new hire form..."
+            )
+            logger.info("MFA verified — proceeding with new hire flow")
 
     except Exception as e:
         logger.error(f"MFA verification failed: {e}", exc_info=True)
@@ -485,7 +494,7 @@ async def handle_mfa_code(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
         await update.message.reply_text(
             f"[FAIL] MFA verification failed:\n{str(e)}\n\n"
-            "Please try again with /newhire."
+            "Please try again."
         )
 
         if browser:
@@ -497,10 +506,33 @@ async def handle_mfa_code(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         context.user_data.pop("browser", None)
         context.user_data.pop("page", None)
         context.user_data.pop("hire", None)
+        context.user_data.pop("check_status_params", None)
         return
 
-    # MFA succeeded — continue with new hire flow (separate try/except so
-    # errors here are reported accurately, not as "MFA verification failed")
+    # MFA succeeded — continue with the appropriate flow (separate try/except
+    # so errors here are reported accurately, not as "MFA verification failed")
+    check_status_params = context.user_data.get("check_status_params")
+
+    if check_status_params:
+        # Check status flow
+        try:
+            from src.telegram_bot.handlers.check_status import _run_check_status
+            context.user_data.pop("check_status_params", None)
+            await _run_check_status(update, context, browser, page, check_status_params)
+        except Exception as e:
+            logger.error(f"Error checking status after MFA: {e}", exc_info=True)
+            await update.message.reply_text(f"[FAIL] Error checking status:\n{str(e)}")
+        finally:
+            if browser:
+                try:
+                    await browser.close()
+                except Exception:
+                    pass
+            context.user_data.pop("browser", None)
+            context.user_data.pop("page", None)
+        return
+
+    # New hire flow
     try:
         await _run_new_hire_flow(update, context, browser, page, hire)
 
@@ -560,6 +592,7 @@ async def auto_cancel_mfa(context: ContextTypes.DEFAULT_TYPE) -> None:
         context.user_data.pop("browser", None)
         context.user_data.pop("page", None)
         context.user_data.pop("hire", None)
+        context.user_data.pop("check_status_params", None)
 
         await context.bot.send_message(
             chat_id=job.chat_id,

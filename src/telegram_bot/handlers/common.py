@@ -69,11 +69,19 @@ Start Date: 03/01/2026
 Reason: New Hire
 
 **Field Options:**
-• Store Number: 39101 (Hewitt Drive), 39102 (Interstate 35), 39103 (South Valley Mills), 39104 (North Valley Mills)
+• Store Number: **Texas:** 39101 (Hewitt Drive), 39102 (Interstate 35), 39103 (South Valley Mills), 39104 (North Valley Mills) — **Colorado:** 33561 (Austin Bluffs Pkwy), 33562 (Galley Rd), 33563 (Constitution Ave), 33564 (Cheyenne Meadows Rd), 33565 (Mesa Ridge Pkwy), 33566 (South Academy Blvd), 33567 (Stetson Hills Blvd)
 • Job Title: assist manager, co-manager, crew, dist manager, gen manager, manager, sal manager
 • Work Schedule: full time, part time
 • Pay Type: hourly, salary
 • Reason: current, new hire (optional, defaults to "new hire")
+
+**Check Status Command**
+Check if a new hire has completed their onboarding tasks:
+/checkstatus First Last mm/dd/yyyy
+
+Example: /checkstatus Carleton Haynes 03/01/2026
+- First Last = employee's full name
+- Date = "from" date filter for the onboarding dashboard
 
 **Termination Command**
 Format your message exactly like this:

@@ -207,3 +207,37 @@
 | Screenshot times out | `full_page=False` + 60s timeout |
 | Pendo blocks clicks | `dismiss_pendo()` after login and before Process button |
 | Navigation intermittent | Dashboard load variable; re-run |
+
+---
+
+## Swap Setup (2GB Safety Net)
+
+- 2GB VPS with no swap caused intermittent Chromium launch failures when memory was tight
+- Added 2GB swap file as overflow safety net (March 2026)
+- Commands used:
+```bash
+sudo fallocate -l 2G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+```
+- Persists across reboots via /etc/fstab entry
+- Verify with `free -h` — Swap row should show 2.0Gi
+- No additional DigitalOcean cost — uses existing disk space
+
+---
+
+## SSH Quick Connect Setup
+
+- SSH config file location (Windows): `~/.ssh/config`
+- Config:
+```
+Host hr-pilot
+    HostName 143.198.50.169
+    User big-al
+    IdentityFile ~/.ssh/vps-do-key
+```
+- Connect with: `ssh hr-pilot` (no need to type user, IP, or key path)
+- SSH key (`vps-do-key`) stored in `~/.ssh/` — private key stays local, public key is on the VPS in `/home/big-al/.ssh/authorized_keys`
+- DigitalOcean credentials and VPS access info stored in Bitwarden (Infrastructure or DevOps folder)

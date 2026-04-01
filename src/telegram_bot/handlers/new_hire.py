@@ -27,6 +27,7 @@ logger = setup_logger(__name__)
 async def _run_new_hire_flow(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
+    pw,
     browser,
     page,
     hire,
@@ -39,6 +40,7 @@ async def _run_new_hire_flow(
     Args:
         update: Telegram update object.
         context: Telegram context object.
+        pw: Playwright instance (stored for cleanup by /confirm or /cancel).
         browser: Authenticated Playwright browser.
         page: Authenticated ADP page.
         hire: Validated NewHire model instance.
@@ -73,6 +75,7 @@ async def _run_new_hire_flow(
 
     # Store data in context for /confirm to use
     context.user_data["pending_hire"] = True
+    context.user_data["pw"] = pw
     context.user_data["browser"] = browser
     context.user_data["page"] = page
     context.user_data["hire"] = hire
@@ -176,7 +179,7 @@ async def handle_new_hire(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return
 
         # No MFA — proceed directly
-        await _run_new_hire_flow(update, context, browser, page, hire)
+        await _run_new_hire_flow(update, context, pw, browser, page, hire)
 
     except ValueError as e:
         # Parsing error
@@ -587,8 +590,9 @@ async def handle_mfa_code(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
 
     # New hire flow
+    pw = context.user_data.get("pw")
     try:
-        await _run_new_hire_flow(update, context, browser, page, hire)
+        await _run_new_hire_flow(update, context, pw, browser, page, hire)
 
     except Exception as e:
         logger.error(f"Error processing new hire after MFA: {e}", exc_info=True)

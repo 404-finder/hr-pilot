@@ -30,6 +30,7 @@ async def main():
     settings.headless = False
     print(f"\n[INFO] Running with headless=False (browser will be visible)")
 
+    pw = None
     browser = None
 
     try:
@@ -61,7 +62,7 @@ async def main():
         # Step 2: Login to ADP
         print("\n[2] Logging into ADP...")
         creds = settings.get_adp_credentials(settings.allowed_user_ids[0])
-        browser, page, mfa_required = await login_to_adp(
+        pw, browser, page, mfa_required = await login_to_adp(
             username=creds.username,
             password=creds.password.get_secret_value(),
         )
@@ -126,6 +127,8 @@ async def main():
             print("\n[6] Closing browser WITHOUT saving...")
             await browser.close()
             print("[OK] Browser closed (form was NOT saved)")
+        if pw:
+            await pw.stop()
 
         # Restore original headless setting
         settings.headless = original_headless

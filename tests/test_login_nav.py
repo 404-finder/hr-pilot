@@ -29,13 +29,14 @@ async def main():
     print("ADP Login and Navigation Test")
     print("=" * 60)
 
+    pw = None
     browser = None
 
     try:
         # Step 1-4: Login to ADP
         print("\n[1] Logging into ADP...")
         creds = settings.get_adp_credentials(settings.telegram_allowed_user_ids[0])
-        browser, page = await login_to_adp(
+        pw, browser, page, _ = await login_to_adp(
             username=creds.username,
             password=creds.password.get_secret_value(),
         )
@@ -197,6 +198,8 @@ async def main():
             print("\n[15] Closing browser WITHOUT saving...")
             await browser.close()
             print("[OK] Browser closed (form was NOT saved)")
+        if pw:
+            await pw.stop()
 
     print("\n" + "=" * 60)
     print("Test Complete")

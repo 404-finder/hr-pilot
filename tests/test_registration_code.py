@@ -57,13 +57,14 @@ async def main():
     settings.headless = False
     print("\n[INFO] Running with headless=False (browser will be visible)")
 
+    pw = None
     browser = None
 
     try:
         # Step 1: Login
         print("\n[1] Logging into ADP...")
         creds = settings.get_adp_credentials(settings.telegram_allowed_user_ids[0])
-        browser, page = await login_to_adp(
+        pw, browser, page, _ = await login_to_adp(
             username=creds.username,
             password=creds.password.get_secret_value(),
         )
@@ -178,6 +179,8 @@ async def main():
             print("\n[6] Closing browser...")
             await browser.close()
             print("[OK] Browser closed")
+        if pw:
+            await pw.stop()
 
         settings.headless = original_headless
 

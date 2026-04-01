@@ -5,7 +5,7 @@ Handles login/logout and session management for ADP Workforce Now.
 """
 
 import asyncio
-from typing import Tuple
+from typing import Any, Tuple
 
 from playwright.async_api import Browser, Page, async_playwright
 
@@ -78,8 +78,8 @@ WebGLRenderingContext.prototype.getParameter = function(param) {
 """
 
 
-async def login_to_adp(username: str, password: str) -> Tuple[Browser, Page, bool]:
-    """Log into ADP WFN and return the authenticated browser, page, and MFA flag.
+async def login_to_adp(username: str, password: str) -> Tuple[Any, Browser, Page, bool]:
+    """Log into ADP WFN and return the Playwright instance, browser, page, and MFA flag.
 
     Implements retry logic with exponential backoff (3 attempts: 2s, 4s, 8s).
     Uses comprehensive browser stealth to avoid headless detection by ADP.
@@ -93,7 +93,8 @@ async def login_to_adp(username: str, password: str) -> Tuple[Browser, Page, boo
         password: ADP password (plaintext).
 
     Returns:
-        Tuple of (Browser, Page, mfa_required):
+        Tuple of (pw, Browser, Page, mfa_required):
+            - pw: Playwright instance. Caller must call pw.stop() when done.
             - mfa_required=False: page is on the WFN dashboard, ready to navigate.
             - mfa_required=True: page is on the MFA code entry screen.
 
@@ -102,6 +103,8 @@ async def login_to_adp(username: str, password: str) -> Tuple[Browser, Page, boo
     """
     max_retries = 3
     backoff_delays = [2, 4, 8]  # seconds
+    pw = None
+    browser = None
 
     for attempt in range(1, max_retries + 1):
         try:
@@ -135,7 +138,7 @@ async def login_to_adp(username: str, password: str) -> Tuple[Browser, Page, boo
 
             # Navigate to login page
             logger.info("Navigating to ADP login URL")
-            await page.goto(settings.adp_login_url, timeout=30000)
+            await page.goto(settings.adp_login_url, timeout=60000, wait_until="domcontentloaded")
 
             # Fill username and click next
             logger.info("Entering username")
@@ -161,7 +164,7 @@ async def login_to_adp(username: str, password: str) -> Tuple[Browser, Page, boo
                 await page.locator("text=Send me a text message").click()
                 await page.wait_for_timeout(2000)
 
-                return browser, page, True
+                return pw, browser, page, True
 
             # Normal path — wait for dashboard URL
             logger.info("No MFA detected — waiting for dashboard redirect")
@@ -184,14 +187,18 @@ async def login_to_adp(username: str, password: str) -> Tuple[Browser, Page, boo
             await dismiss_pendo(page)
 
             logger.info("Successfully logged into ADP")
-            return browser, page, False
+            return pw, browser, page, False
 
         except Exception as e:
             logger.error(f"Login attempt {attempt} failed: {e}")
 
-            # Close browser if it was opened
+            # Close browser and stop Playwright to avoid leaking node processes
             try:
                 await browser.close()
+            except Exception:
+                pass
+            try:
+                await pw.stop()
             except Exception:
                 pass
 

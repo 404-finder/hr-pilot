@@ -107,6 +107,7 @@ async def handle_new_hire(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         logger.warning(f"Unauthorized new hire attempt from user {update.effective_user.id}")
         return
 
+    pw = None
     browser = None
     try:
         # Parse message into raw dict
@@ -144,7 +145,7 @@ async def handle_new_hire(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
         # Log into ADP
         logger.info("Logging into ADP")
-        browser, page, mfa_required = await login_to_adp(
+        pw, browser, page, mfa_required = await login_to_adp(
             username=adp_creds.username,
             password=adp_creds.password.get_secret_value(),
         )
@@ -152,6 +153,7 @@ async def handle_new_hire(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if mfa_required:
             # Store state and wait for user to supply the MFA code
             context.user_data["awaiting_mfa_code"] = True
+            context.user_data["pw"] = pw
             context.user_data["browser"] = browser
             context.user_data["page"] = page
             context.user_data["hire"] = hire
@@ -188,6 +190,12 @@ async def handle_new_hire(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 await browser.close()
             except Exception:
                 pass
+        if pw:
+            try:
+                await pw.stop()
+                logger.info("Playwright stopped")
+            except Exception as pw_error:
+                logger.error(f"Error stopping Playwright: {pw_error}")
 
     except Exception as e:
         # ADP automation error
@@ -214,6 +222,12 @@ async def handle_new_hire(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 await browser.close()
             except Exception:
                 pass
+        if pw:
+            try:
+                await pw.stop()
+                logger.info("Playwright stopped")
+            except Exception as pw_error:
+                logger.error(f"Error stopping Playwright: {pw_error}")
 
 
 async def handle_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -298,9 +312,17 @@ async def handle_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 logger.info("Browser closed after confirmation")
             except Exception as close_error:
                 logger.error(f"Error closing browser: {close_error}")
+        pw = context.user_data.get("pw")
+        if pw:
+            try:
+                await pw.stop()
+                logger.info("Playwright stopped")
+            except Exception as pw_error:
+                logger.error(f"Error stopping Playwright: {pw_error}")
 
         # Clear pending hire data
         context.user_data.pop("pending_hire", None)
+        context.user_data.pop("pw", None)
         context.user_data.pop("browser", None)
         context.user_data.pop("page", None)
         context.user_data.pop("hire", None)
@@ -332,9 +354,17 @@ async def handle_cancel_hire(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if browser:
             await browser.close()
             logger.info("Browser closed after cancellation")
+        pw = context.user_data.get("pw")
+        if pw:
+            try:
+                await pw.stop()
+                logger.info("Playwright stopped")
+            except Exception as pw_error:
+                logger.error(f"Error stopping Playwright: {pw_error}")
 
         # Clear pending hire data
         context.user_data.pop("pending_hire", None)
+        context.user_data.pop("pw", None)
         context.user_data.pop("browser", None)
         context.user_data.pop("page", None)
         context.user_data.pop("hire", None)
@@ -371,9 +401,17 @@ async def auto_cancel_hire(context: ContextTypes.DEFAULT_TYPE) -> None:
         if browser:
             await browser.close()
             logger.info("Browser closed after auto-cancel timeout")
+        pw = context.user_data.get("pw")
+        if pw:
+            try:
+                await pw.stop()
+                logger.info("Playwright stopped")
+            except Exception as pw_error:
+                logger.error(f"Error stopping Playwright: {pw_error}")
 
         # Clear pending hire data
         context.user_data.pop("pending_hire", None)
+        context.user_data.pop("pw", None)
         context.user_data.pop("browser", None)
         context.user_data.pop("page", None)
         context.user_data.pop("hire", None)
@@ -502,7 +540,15 @@ async def handle_mfa_code(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 await browser.close()
             except Exception:
                 pass
+        pw = context.user_data.get("pw")
+        if pw:
+            try:
+                await pw.stop()
+                logger.info("Playwright stopped")
+            except Exception as pw_error:
+                logger.error(f"Error stopping Playwright: {pw_error}")
 
+        context.user_data.pop("pw", None)
         context.user_data.pop("browser", None)
         context.user_data.pop("page", None)
         context.user_data.pop("hire", None)
@@ -528,6 +574,14 @@ async def handle_mfa_code(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     await browser.close()
                 except Exception:
                     pass
+            pw = context.user_data.get("pw")
+            if pw:
+                try:
+                    await pw.stop()
+                    logger.info("Playwright stopped")
+                except Exception as pw_error:
+                    logger.error(f"Error stopping Playwright: {pw_error}")
+            context.user_data.pop("pw", None)
             context.user_data.pop("browser", None)
             context.user_data.pop("page", None)
         return
@@ -561,7 +615,15 @@ async def handle_mfa_code(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 await browser.close()
             except Exception:
                 pass
+        pw = context.user_data.get("pw")
+        if pw:
+            try:
+                await pw.stop()
+                logger.info("Playwright stopped")
+            except Exception as pw_error:
+                logger.error(f"Error stopping Playwright: {pw_error}")
 
+        context.user_data.pop("pw", None)
         context.user_data.pop("browser", None)
         context.user_data.pop("page", None)
         context.user_data.pop("hire", None)
@@ -587,8 +649,16 @@ async def auto_cancel_mfa(context: ContextTypes.DEFAULT_TYPE) -> None:
         if browser:
             await browser.close()
             logger.info("Browser closed after MFA timeout")
+        pw = context.user_data.get("pw")
+        if pw:
+            try:
+                await pw.stop()
+                logger.info("Playwright stopped")
+            except Exception as pw_error:
+                logger.error(f"Error stopping Playwright: {pw_error}")
 
         context.user_data.pop("awaiting_mfa_code", None)
+        context.user_data.pop("pw", None)
         context.user_data.pop("browser", None)
         context.user_data.pop("page", None)
         context.user_data.pop("hire", None)

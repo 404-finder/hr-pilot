@@ -73,6 +73,7 @@ async def handle_check_status(
         logger.warning(f"Unauthorized check status attempt from user {update.effective_user.id}")
         return
 
+    pw = None
     browser = None
 
     try:
@@ -105,7 +106,7 @@ async def handle_check_status(
 
         # Log into ADP
         logger.info("Logging into ADP")
-        browser, page, mfa_required = await login_to_adp(
+        pw, browser, page, mfa_required = await login_to_adp(
             username=adp_creds.username,
             password=adp_creds.password.get_secret_value(),
         )
@@ -113,6 +114,7 @@ async def handle_check_status(
         if mfa_required:
             # Store state for MFA relay
             context.user_data["awaiting_mfa_code"] = True
+            context.user_data["pw"] = pw
             context.user_data["browser"] = browser
             context.user_data["page"] = page
             context.user_data["check_status_params"] = parsed
@@ -162,6 +164,12 @@ async def handle_check_status(
                 logger.info("Browser closed")
             except Exception as close_error:
                 logger.error(f"Error closing browser: {close_error}")
+            if pw:
+                try:
+                    await pw.stop()
+                    logger.info("Playwright stopped")
+                except Exception as pw_error:
+                    logger.error(f"Error stopping Playwright: {pw_error}")
 
 
 async def _run_check_status(
@@ -229,8 +237,16 @@ async def _auto_cancel_check_status_mfa(
         if browser:
             await browser.close()
             logger.info("Browser closed after check status MFA timeout")
+        pw = context.user_data.get("pw")
+        if pw:
+            try:
+                await pw.stop()
+                logger.info("Playwright stopped")
+            except Exception as pw_error:
+                logger.error(f"Error stopping Playwright: {pw_error}")
 
         context.user_data.pop("awaiting_mfa_code", None)
+        context.user_data.pop("pw", None)
         context.user_data.pop("browser", None)
         context.user_data.pop("page", None)
         context.user_data.pop("check_status_params", None)

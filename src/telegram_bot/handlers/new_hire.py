@@ -497,13 +497,14 @@ async def handle_mfa_code(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await page.wait_for_load_state("domcontentloaded")
         logger.info(f"Post-MFA URL: {page.url}")
 
-        # Dismiss "Remind me later" popup if it appears
+        # Dismiss passkey/reminder popup if it appears
         try:
-            await page.wait_for_selector(
-                'sdf-button[aria-label="Remind me later"]', timeout=5000
-            )
-            await page.click('sdf-button[aria-label="Remind me later"]')
-            logger.info("Dismissed post-MFA popup")
+            from src.adp.selectors.login import REMIND_ME_LATER_BUTTON
+            remind_btn = page.locator(REMIND_ME_LATER_BUTTON)
+            if await remind_btn.is_visible():
+                await remind_btn.click()
+                logger.info("Dismissed post-MFA popup")
+                await page.wait_for_timeout(2000)
         except Exception:
             pass
 

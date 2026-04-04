@@ -78,6 +78,12 @@ WebGLRenderingContext.prototype.getParameter = function(param) {
 """
 
 
+async def _enter_password_and_sign_in(page: Page, password: str) -> None:
+    """Fill password and click Sign In."""
+    await page.fill(PASSWORD_INPUT, password)
+    await page.click(SIGN_IN_BUTTON)
+
+
 async def login_to_adp(username: str, password: str) -> Tuple[Any, Browser, Page, bool]:
     """Log into ADP WFN and return the Playwright instance, browser, page, and MFA flag.
 
@@ -150,13 +156,48 @@ async def login_to_adp(username: str, password: str) -> Tuple[Any, Browser, Page
             logger.info("Waiting for password field")
             await page.wait_for_selector(PASSWORD_INPUT, timeout=10000)
 
-            # Fill password and sign in
+            # Debug screenshot after Next click, before password entry
+            await page.wait_for_timeout(3000)
+            try:
+                await page.screenshot(
+                    path="screenshots/debug_after_next_click.png",
+                    full_page=False, timeout=60000
+                )
+                logger.info("Debug screenshot saved after Next button click")
+            except Exception as e:
+                logger.warning(f"Failed to capture post-Next screenshot: {e}")
+
+            # Fill password and sign in (with timeout guard)
             logger.info("Entering password")
-            await page.fill(PASSWORD_INPUT, password)
-            await page.click(SIGN_IN_BUTTON)
+            try:
+                await asyncio.wait_for(
+                    _enter_password_and_sign_in(page, password),
+                    timeout=30.0
+                )
+            except asyncio.TimeoutError:
+                logger.error("Password entry/sign-in timed out after 30s")
+                try:
+                    await page.screenshot(
+                        path="screenshots/debug_password_timeout.png",
+                        full_page=False, timeout=10000
+                    )
+                except Exception:
+                    pass
+                raise LoginError("Password entry timed out after 30s — ADP may be unresponsive")
 
             # Check for MFA before waiting for the dashboard
             await page.wait_for_timeout(5000)
+
+            # Dismiss passkey/reminder popup if it appears (blocks dashboard redirect)
+            try:
+                remind_btn = page.locator(REMIND_ME_LATER_BUTTON)
+                if await remind_btn.is_visible():
+                    await remind_btn.click()
+                    logger.info("Dismissed passkey/reminder popup")
+                    await page.wait_for_timeout(2000)
+            except Exception:
+                pass
+
             mfa_detected = await page.locator("h1:has-text('Verify Your Identity')").is_visible()
 
             if mfa_detected:
@@ -173,15 +214,6 @@ async def login_to_adp(username: str, password: str) -> Tuple[Any, Browser, Page
             # Wait for dashboard DOM to be ready before proceeding
             await page.wait_for_load_state("domcontentloaded")
             logger.info(f"Post-login URL: {page.url}")
-
-            # Try to dismiss popup if it appears
-            try:
-                logger.info("Checking for ADP popup")
-                await page.wait_for_selector(REMIND_ME_LATER_BUTTON, timeout=5000)
-                await page.click(REMIND_ME_LATER_BUTTON)
-                logger.info("Dismissed ADP popup")
-            except Exception:
-                logger.info("No popup detected")
 
             # Dismiss Pendo product tour overlay if present
             await dismiss_pendo(page)

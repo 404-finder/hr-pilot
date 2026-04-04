@@ -17,6 +17,7 @@ from src.adp.registration_code import send_registration_code
 from src.adp.selectors.new_hire import SAVE_AND_EXIT_BUTTON
 from src.config import settings
 from src.telegram_bot.parsers import parse_new_hire, parse_new_hire_raw
+from src.telegram_bot.watchdog import start_watchdog, stop_watchdog
 from src.utils.logger import setup_logger
 from src.utils.screenshots import capture_screenshot
 from src.validators import validate_new_hire_input
@@ -146,6 +147,9 @@ async def handle_new_hire(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             logger.error(f"Credentials lookup failed: {creds_error}")
             return
 
+        # Start watchdog timer for long-running operation
+        await start_watchdog(context, update.effective_chat.id, "New hire processing")
+
         # Log into ADP
         logger.info("Logging into ADP")
         pw, browser, page, mfa_required = await login_to_adp(
@@ -182,6 +186,7 @@ async def handle_new_hire(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await _run_new_hire_flow(update, context, pw, browser, page, hire)
 
     except ValueError as e:
+        stop_watchdog(context)
         # Parsing error
         error_message = f"[FAIL] Invalid message format:\n{str(e)}\n\nUse /help to see the expected format."
         await update.message.reply_text(error_message)
@@ -201,6 +206,7 @@ async def handle_new_hire(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 logger.error(f"Error stopping Playwright: {pw_error}")
 
     except Exception as e:
+        stop_watchdog(context)
         # ADP automation error
         logger.error(f"Error processing new hire: {e}", exc_info=True)
         error_message = f"[FAIL] Error processing new hire:\n{str(e)}"
@@ -308,6 +314,7 @@ async def handle_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             )
 
     finally:
+        stop_watchdog(context)
         # Always close browser and clear data
         if browser:
             try:
@@ -350,6 +357,7 @@ async def handle_cancel_hire(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     try:
+        stop_watchdog(context)
         # Get stored browser
         browser = context.user_data.get("browser")
 
@@ -397,6 +405,7 @@ async def auto_cancel_hire(context: ContextTypes.DEFAULT_TYPE) -> None:
         return  # Already confirmed or cancelled
 
     try:
+        stop_watchdog(context)
         # Get stored browser
         browser = context.user_data.get("browser")
 
@@ -527,6 +536,7 @@ async def handle_mfa_code(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             logger.info("MFA verified — proceeding with new hire flow")
 
     except Exception as e:
+        stop_watchdog(context)
         logger.error(f"MFA verification failed: {e}", exc_info=True)
 
         try:
@@ -573,6 +583,7 @@ async def handle_mfa_code(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             logger.error(f"Error checking status after MFA: {e}", exc_info=True)
             await update.message.reply_text(f"[FAIL] Error checking status:\n{str(e)}")
         finally:
+            stop_watchdog(context)
             if browser:
                 try:
                     await browser.close()
@@ -596,6 +607,7 @@ async def handle_mfa_code(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await _run_new_hire_flow(update, context, pw, browser, page, hire)
 
     except Exception as e:
+        stop_watchdog(context)
         logger.error(f"Error processing new hire after MFA: {e}", exc_info=True)
 
         await update.message.reply_text(
@@ -663,6 +675,7 @@ async def auto_cancel_mfa(context: ContextTypes.DEFAULT_TYPE) -> None:
                 logger.error(f"Error stopping Playwright: {pw_error}")
 
         context.user_data.pop("awaiting_mfa_code", None)
+        stop_watchdog(context)
         context.user_data.pop("pw", None)
         context.user_data.pop("browser", None)
         context.user_data.pop("page", None)

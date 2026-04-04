@@ -5,15 +5,15 @@ Handles /start, /help, /cancel, /debug commands and error handling.
 """
 
 import glob
-import logging
 import os
 
 from telegram import Update
 from telegram.ext import ContextTypes
 
 from src.config import settings
+from src.utils.logger import setup_logger
 
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

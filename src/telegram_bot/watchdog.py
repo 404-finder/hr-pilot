@@ -21,8 +21,9 @@ async def _watchdog_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
         await context.bot.send_message(
             chat_id=chat_id,
             text=(
-                f"⏳ {operation_name} has been running for {elapsed} minutes. "
-                f"Send /cancel to abort and start over."
+                f"⏳ {operation_name} has been running for {elapsed} min — "
+                f"still working. ADP can be slow at times. "
+                f"Send /cancel if you'd like to abort and retry."
             ),
         )
     except Exception as e:
@@ -48,7 +49,7 @@ async def start_watchdog(
     job = context.job_queue.run_repeating(
         _watchdog_callback,
         interval=120,
-        first=120,
+        first=240,
         data={
             "chat_id": chat_id,
             "operation_name": operation_name,

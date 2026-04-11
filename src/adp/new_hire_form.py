@@ -70,6 +70,98 @@ from src.utils.screenshots import capture_screenshot
 logger = setup_logger(__name__)
 
 
+async def _select_onboarding_experience(
+    page: Page, selector: str, search_code: str, experience_name: str, max_attempts: int = 3
+) -> None:
+    """Select onboarding experience from the MDFSelectBox dropdown with retry.
+
+    The #onboardingTemplateId dropdown is a hidden MDFSelectBox input that
+    requires special handling. React Select opens on mousedown, not click.
+    This function retries the entire open->search->select sequence because
+    the dropdown intermittently fails to open on VPS.
+
+    Args:
+        page: Playwright page.
+        selector: CSS selector for the dropdown input (ONBOARDING_TEMPLATE_SELECT).
+        search_code: Text to type to filter options.
+        experience_name: Full text of the option to select.
+        max_attempts: Number of retry attempts.
+
+    Raises:
+        FormSubmissionError: If all attempts fail.
+    """
+    option_selector = f'[class*="MDFSelectBox__option"]:has-text("{experience_name}")'
+
+    for attempt in range(1, max_attempts + 1):
+        logger.info(f"Onboarding dropdown attempt {attempt}/{max_attempts}")
+
+        try:
+            ob_input = page.locator(selector)
+
+            # Close any previously opened dropdown that may be in a bad state
+            await page.keyboard.press("Escape")
+            await page.wait_for_timeout(500)
+
+            # Strategy 1: force-click the hidden input
+            try:
+                await ob_input.click(force=True, timeout=5000)
+                logger.info("Onboarding dropdown: force-click on input succeeded")
+            except Exception as e:
+                logger.info(f"Onboarding dropdown: force-click failed: {e}")
+
+            await page.wait_for_timeout(500)
+
+            # Strategy 2: dispatch focus + mousedown on the input
+            await ob_input.dispatch_event("focus")
+            await ob_input.dispatch_event("mousedown")
+            logger.info("Onboarding dropdown: dispatched focus + mousedown on input")
+            await page.wait_for_timeout(500)
+
+            # Strategy 3: dispatch mousedown on the MDFSelectBox container
+            await page.evaluate("""(sel) => {
+                const input = document.querySelector(sel);
+                if (input) {
+                    const container = input.closest('[class*="MDFSelectBox"]')
+                        || input.parentElement;
+                    container.scrollIntoView({block: 'center'});
+                    container.dispatchEvent(new MouseEvent('mousedown', {bubbles: true}));
+                }
+            }""", selector)
+            logger.info("Onboarding dropdown: dispatched mousedown on container")
+            await page.wait_for_timeout(500)
+
+            # Check if any dropdown menu is now visible
+            menu_visible = await page.locator('[class*="MDFSelectBox__menu"]').is_visible()
+            logger.info(f"Onboarding dropdown: menu visible = {menu_visible}")
+
+            if not menu_visible and attempt < max_attempts:
+                logger.warning(f"Dropdown menu not visible on attempt {attempt}, retrying...")
+                await page.wait_for_timeout(1000)
+                continue
+
+            # Type search code and wait for option
+            await page.keyboard.type(search_code)
+            logger.info(f"Onboarding dropdown: typed '{search_code}'")
+
+            # Use shorter timeout per attempt so retries happen faster
+            option_timeout = 10000 if attempt < max_attempts else 20000
+            await page.wait_for_selector(option_selector, timeout=option_timeout)
+            await page.click(option_selector)
+            await page.wait_for_timeout(500)
+            logger.info(f"Selected onboarding experience: {experience_name}")
+            return
+
+        except Exception as e:
+            logger.warning(f"Onboarding dropdown attempt {attempt} failed: {e}")
+            if attempt == max_attempts:
+                raise FormSubmissionError(
+                    f"Failed to select onboarding experience after {max_attempts} attempts: {e}"
+                )
+            # Clear any typed text before retry
+            await page.keyboard.press("Escape")
+            await page.wait_for_timeout(1000)
+
+
 async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) -> dict:
     """Fill out the ADP new hire form with dry run support.
 
@@ -307,50 +399,9 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         ob_search_code = get_search_code(onboarding_experience)
         logger.info(f"Onboarding MDF dropdown: search='{ob_search_code}', match='{onboarding_experience}'")
 
-        # Custom MDF interaction — #onboardingTemplateId is a hidden input inside
-        # the MDFSelectBox container. React Select opens on mousedown, not click.
-        # Try multiple strategies to trigger the dropdown open state.
-        ob_input = page.locator(ONBOARDING_TEMPLATE_SELECT)
-
-        # Strategy 1: force-click the hidden input (triggers React focus handler)
-        try:
-            await ob_input.click(force=True, timeout=5000)
-            logger.info("Onboarding dropdown: force-click on input succeeded")
-        except Exception as e:
-            logger.info(f"Onboarding dropdown: force-click failed: {e}")
-
-        await page.wait_for_timeout(500)
-
-        # Strategy 2: dispatch focus + mousedown on the input (React Select
-        # listens for mousedown to open the menu, not click)
-        await ob_input.dispatch_event("focus")
-        logger.info("Onboarding dropdown: dispatched focus")
-        await ob_input.dispatch_event("mousedown")
-        logger.info("Onboarding dropdown: dispatched mousedown on input")
-        await page.wait_for_timeout(500)
-
-        # Strategy 3: dispatch mousedown on the MDFSelectBox container div
-        await page.evaluate("""(selector) => {
-            const input = document.querySelector(selector);
-            if (input) {
-                const container = input.closest('[class*="MDFSelectBox"]')
-                    || input.parentElement;
-                container.scrollIntoView({block: 'center'});
-                container.dispatchEvent(new MouseEvent('mousedown', {bubbles: true}));
-            }
-        }""", ONBOARDING_TEMPLATE_SELECT)
-        logger.info("Onboarding dropdown: dispatched mousedown on container")
-        await page.wait_for_timeout(500)
-
-        # Type search code and select matching option
-        await page.keyboard.type(ob_search_code)
-        logger.info(f"Onboarding dropdown: typed '{ob_search_code}'")
-        await page.wait_for_timeout(1500)
-        option_selector = f'[class*="MDFSelectBox__option"]:has-text("{onboarding_experience}")'
-        await page.wait_for_selector(option_selector, timeout=20000)
-        await page.click(option_selector)
-        await page.wait_for_timeout(500)
-        logger.info(f"Selected onboarding experience: {onboarding_experience}")
+        await _select_onboarding_experience(
+            page, ONBOARDING_TEMPLATE_SELECT, ob_search_code, onboarding_experience
+        )
 
         # Click "Assign" button then "Back" to return to the modal
         await page.wait_for_selector(ASSIGN_EXP_BUTTON, timeout=20000)

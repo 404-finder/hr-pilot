@@ -75,10 +75,10 @@ async def _select_onboarding_experience(
 ) -> None:
     """Select onboarding experience from the MDFSelectBox dropdown with retry.
 
-    The #onboardingTemplateId dropdown is a hidden MDFSelectBox input that
-    requires special handling. React Select opens on mousedown, not click.
-    This function retries the entire open->search->select sequence because
-    the dropdown intermittently fails to open on VPS.
+    The #onboardingTemplateId dropdown is a hidden MDFSelectBox input inside
+    a slide-in panel that takes 5-15s to render on VPS. React Select opens
+    on mousedown, not click. This function waits for the element to exist,
+    then retries the open->search->select sequence.
 
     Args:
         page: Playwright page.
@@ -92,19 +92,33 @@ async def _select_onboarding_experience(
     """
     option_selector = f'[class*="MDFSelectBox__option"]:has-text("{experience_name}")'
 
+    # Wait for the slide-in panel to fully render #onboardingTemplateId.
+    # The panel takes 5-15s on VPS — must wait before any interaction.
+    logger.info("Waiting for onboarding dropdown to appear in DOM...")
+    try:
+        await page.wait_for_selector(selector, state="attached", timeout=20000)
+        logger.info("Onboarding dropdown element found in DOM")
+    except Exception as e:
+        # Panel didn't load — try re-clicking pencil icon
+        logger.warning(f"Onboarding dropdown not found after 20s: {e}")
+        logger.info("Re-clicking pencil icon to reopen slide-in panel")
+        try:
+            await page.locator("#assignedTemplateName_Id").evaluate("el => el.click()")
+            await page.wait_for_timeout(5000)
+            await page.wait_for_selector(selector, state="attached", timeout=20000)
+            logger.info("Onboarding dropdown found after re-click")
+        except Exception as e2:
+            raise FormSubmissionError(
+                f"Onboarding slide-in panel failed to load: {e2}"
+            )
+
     for attempt in range(1, max_attempts + 1):
         logger.info(f"Onboarding dropdown attempt {attempt}/{max_attempts}")
 
         try:
-            ob_input = page.locator(selector)
-
-            # Close any previously opened dropdown that may be in a bad state
-            await page.keyboard.press("Escape")
-            await page.wait_for_timeout(500)
-
             # Strategy 1: force-click the hidden input
             try:
-                await ob_input.click(force=True, timeout=5000)
+                await page.locator(selector).click(force=True, timeout=5000)
                 logger.info("Onboarding dropdown: force-click on input succeeded")
             except Exception as e:
                 logger.info(f"Onboarding dropdown: force-click failed: {e}")
@@ -112,9 +126,20 @@ async def _select_onboarding_experience(
             await page.wait_for_timeout(500)
 
             # Strategy 2: dispatch focus + mousedown on the input
-            await ob_input.dispatch_event("focus")
-            await ob_input.dispatch_event("mousedown")
-            logger.info("Onboarding dropdown: dispatched focus + mousedown on input")
+            # Guard with short timeout — element may not be interactive
+            try:
+                await asyncio.wait_for(
+                    page.locator(selector).dispatch_event("focus"),
+                    timeout=5.0
+                )
+                await asyncio.wait_for(
+                    page.locator(selector).dispatch_event("mousedown"),
+                    timeout=5.0
+                )
+                logger.info("Onboarding dropdown: dispatched focus + mousedown on input")
+            except (asyncio.TimeoutError, Exception) as e:
+                logger.info(f"Onboarding dropdown: dispatch events failed: {e}")
+
             await page.wait_for_timeout(500)
 
             # Strategy 3: dispatch mousedown on the MDFSelectBox container
@@ -130,13 +155,28 @@ async def _select_onboarding_experience(
             logger.info("Onboarding dropdown: dispatched mousedown on container")
             await page.wait_for_timeout(500)
 
-            # Check if any dropdown menu is now visible
-            menu_visible = await page.locator('[class*="MDFSelectBox__menu"]').is_visible()
+            # Check if THIS dropdown's menu is now visible (scoped to container)
+            menu_visible = await page.evaluate("""(sel) => {
+                const input = document.querySelector(sel);
+                if (!input) return false;
+                const container = input.closest('[class*="MDFSelectBox"]')
+                    || input.parentElement;
+                const menu = container.querySelector('[class*="MDFSelectBox__menu"]');
+                return menu !== null && menu.offsetHeight > 0;
+            }""", selector)
             logger.info(f"Onboarding dropdown: menu visible = {menu_visible}")
 
             if not menu_visible and attempt < max_attempts:
                 logger.warning(f"Dropdown menu not visible on attempt {attempt}, retrying...")
-                await page.wait_for_timeout(1000)
+                # Clear input without closing the slide-in panel
+                await page.evaluate("""(sel) => {
+                    const input = document.querySelector(sel);
+                    if (input) {
+                        input.value = '';
+                        input.dispatchEvent(new Event('input', {bubbles: true}));
+                    }
+                }""", selector)
+                await page.wait_for_timeout(1500)
                 continue
 
             # Type search code and wait for option
@@ -157,9 +197,20 @@ async def _select_onboarding_experience(
                 raise FormSubmissionError(
                     f"Failed to select onboarding experience after {max_attempts} attempts: {e}"
                 )
-            # Clear any typed text before retry
-            await page.keyboard.press("Escape")
-            await page.wait_for_timeout(1000)
+            # Clear input value via JS — do NOT press Escape (closes slide-in panel)
+            await page.evaluate("""(sel) => {
+                const input = document.querySelector(sel);
+                if (input) {
+                    input.value = '';
+                    input.blur();
+                    input.dispatchEvent(new Event('input', {bubbles: true}));
+                    // Close dropdown menu without closing slide-in panel
+                    const menu = input.closest('[class*="MDFSelectBox"]')
+                        ?.querySelector('[class*="MDFSelectBox__menu"]');
+                    if (menu) menu.remove();
+                }
+            }""", selector)
+            await page.wait_for_timeout(1500)
 
 
 async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) -> dict:
@@ -390,7 +441,7 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         logger.info(f"Onboarding pencil icon clicked via {click_result['clicked']}")
 
         # Wait for onboarding sub-page slide-in to load
-        await page.wait_for_timeout(3000)
+        await page.wait_for_timeout(5000)
 
         # Select onboarding experience from MDFSelectBox (#onboardingTemplateId)
         # inside the slide-in pane (#showTemplateSlideIn_Id)

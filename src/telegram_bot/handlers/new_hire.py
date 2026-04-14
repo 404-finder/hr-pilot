@@ -277,6 +277,21 @@ async def handle_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         try:
             await page.wait_for_selector(SAVE_AND_EXIT_BUTTON, timeout=10000)
             await page.click(SAVE_AND_EXIT_BUTTON)
+
+            # Debug: capture state immediately after Save and Exit click
+            await page.wait_for_timeout(1000)
+            try:
+                await page.screenshot(
+                    path="screenshots/debug_after_save_exit.png",
+                    full_page=False, timeout=10000
+                )
+                logger.info("Debug screenshot saved after Save and Exit click")
+            except Exception as e:
+                logger.warning(f"Failed to capture post-save screenshot: {e}")
+
+            current_url = page.url
+            logger.info(f"URL after Save and Exit click: {current_url}")
+
             await page.wait_for_timeout(3000)
 
             screenshot_filename = f"new_hire_submitted_{hire.first_name}_{hire.last_name}".replace(" ", "_")

@@ -279,6 +279,38 @@ async def handle_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             # because the button is at the top of the page but the form
             # is scrolled to the bottom (Emergency Contacts section).
             await page.wait_for_selector(SAVE_AND_EXIT_BUTTON, timeout=10000)
+
+            # Diagnostic: how many #ENHSaveAndExit elements exist and where?
+            save_btns_info = await page.evaluate("""() => {
+                const btns = document.querySelectorAll('#ENHSaveAndExit');
+                return Array.from(btns).map((btn, i) => ({
+                    index: i,
+                    tag: btn.tagName,
+                    id: btn.id,
+                    type: btn.type,
+                    disabled: btn.disabled,
+                    ariaDisabled: btn.getAttribute('aria-disabled'),
+                    visible: btn.offsetParent !== null,
+                    rect: btn.getBoundingClientRect().toJSON(),
+                    classes: btn.className,
+                    innerText: btn.innerText.substring(0, 50),
+                    parentId: btn.parentElement?.id || '',
+                    parentClass: (btn.parentElement?.className || '').substring(0, 80)
+                }));
+            }""")
+            for info in save_btns_info:
+                logger.info(f"SaveAndExit button: {info}")
+
+            # Also log current scroll position and page dimensions
+            scroll_info = await page.evaluate("""() => ({
+                scrollX: window.scrollX,
+                scrollY: window.scrollY,
+                innerHeight: window.innerHeight,
+                innerWidth: window.innerWidth,
+                bodyHeight: document.body.scrollHeight
+            })""")
+            logger.info(f"Page scroll/dimensions: {scroll_info}")
+
             await page.locator(SAVE_AND_EXIT_BUTTON).evaluate(
                 "el => { el.scrollIntoView({block: 'center'}); el.click(); }"
             )

@@ -284,6 +284,38 @@ async def handle_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             )
             logger.info("Clicked Save and Exit via JS")
 
+            await page.wait_for_timeout(2000)
+            try:
+                await page.screenshot(
+                    path="screenshots/debug_after_save_js_click.png",
+                    full_page=False, timeout=10000
+                )
+                logger.info(f"Post-save URL: {page.url}")
+                # Check for any visible dialogs or popups
+                dialogs = await page.evaluate("""() => {
+                    const modals = document.querySelectorAll(
+                        '[role="dialog"], [role="alertdialog"], .vdl-modal, '
+                        + '.sdf-modal, [class*="modal"], [class*="dialog"], '
+                        + '[class*="popup"], [class*="overlay"]'
+                    );
+                    return Array.from(modals)
+                        .filter(m => m.offsetParent !== null)
+                        .map(m => ({
+                            tag: m.tagName,
+                            id: m.id || '',
+                            className: (m.className || '').substring(0, 100),
+                            text: (m.innerText || '').substring(0, 200),
+                            rect: m.getBoundingClientRect().toJSON()
+                        }));
+                }""")
+                if dialogs:
+                    for d in dialogs:
+                        logger.info(f"Visible dialog/modal: {d}")
+                else:
+                    logger.info("No visible dialogs or modals detected")
+            except Exception as e:
+                logger.warning(f"Post-save debug failed: {e}")
+
             # Verify the form actually saved by checking the button disappears
             try:
                 await page.wait_for_function(

@@ -275,22 +275,41 @@ async def handle_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
         # --- Step 1: Save and Exit ---
         try:
+            # Click Save and Exit via JS — page.click() fails silently
+            # because the button is at the top of the page but the form
+            # is scrolled to the bottom (Emergency Contacts section).
             await page.wait_for_selector(SAVE_AND_EXIT_BUTTON, timeout=10000)
-            await page.click(SAVE_AND_EXIT_BUTTON)
+            await page.locator(SAVE_AND_EXIT_BUTTON).evaluate(
+                "el => { el.scrollIntoView({block: 'center'}); el.click(); }"
+            )
+            logger.info("Clicked Save and Exit via JS")
 
-            # Debug: capture state immediately after Save and Exit click
-            await page.wait_for_timeout(1000)
+            # Verify the form actually saved by checking the button disappears
             try:
-                await page.screenshot(
-                    path="screenshots/debug_after_save_exit.png",
-                    full_page=False, timeout=10000
+                await page.wait_for_function(
+                    """() => {
+                        const btn = document.querySelector('#ENHSaveAndExit');
+                        return !btn || btn.offsetParent === null;
+                    }""",
+                    timeout=15000
                 )
-                logger.info("Debug screenshot saved after Save and Exit click")
-            except Exception as e:
-                logger.warning(f"Failed to capture post-save screenshot: {e}")
+                logger.info("Save confirmed — form navigated away")
+            except Exception:
+                logger.warning("Save and Exit may not have worked — retrying")
+                await page.locator(SAVE_AND_EXIT_BUTTON).evaluate(
+                    "el => { el.scrollIntoView({block: 'center'}); el.click(); }"
+                )
+                await page.wait_for_timeout(5000)
 
-            current_url = page.url
-            logger.info(f"URL after Save and Exit click: {current_url}")
+                still_visible = await page.evaluate(
+                    "!!document.querySelector('#ENHSaveAndExit')?.offsetParent"
+                )
+                if still_visible:
+                    raise Exception(
+                        "Save and Exit failed — form is still open. "
+                        "Check for ADP validation errors."
+                    )
+                logger.info("Save confirmed on retry")
 
             await page.wait_for_timeout(3000)
 

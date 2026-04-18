@@ -156,16 +156,7 @@ async def login_to_adp(username: str, password: str) -> Tuple[Any, Browser, Page
             logger.info("Waiting for password field")
             await page.wait_for_selector(PASSWORD_INPUT, timeout=10000)
 
-            # Debug screenshot after Next click, before password entry
             await page.wait_for_timeout(3000)
-            try:
-                await page.screenshot(
-                    path="screenshots/debug_after_next_click.png",
-                    full_page=False, timeout=60000
-                )
-                logger.info("Debug screenshot saved after Next button click")
-            except Exception as e:
-                logger.warning(f"Failed to capture post-Next screenshot: {e}")
 
             # Fill password and sign in (with timeout guard)
             logger.info("Entering password")
@@ -176,13 +167,6 @@ async def login_to_adp(username: str, password: str) -> Tuple[Any, Browser, Page
                 )
             except asyncio.TimeoutError:
                 logger.error("Password entry/sign-in timed out after 30s")
-                try:
-                    await page.screenshot(
-                        path="screenshots/debug_password_timeout.png",
-                        full_page=False, timeout=10000
-                    )
-                except Exception:
-                    pass
                 raise LoginError("Password entry timed out after 30s — ADP may be unresponsive")
 
             # Check for MFA before waiting for the dashboard

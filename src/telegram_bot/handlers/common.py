@@ -4,9 +4,6 @@ Common bot handlers.
 Handles /start, /help, /cancel, /debug commands and error handling.
 """
 
-import glob
-import os
-
 from telegram import Update
 from telegram.ext import ContextTypes
 
@@ -120,7 +117,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def debug_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /debug command — send the latest screenshot from the screenshots dir.
+    """Handle /debug command.
 
     Args:
         update: Telegram update object.
@@ -130,36 +127,7 @@ async def debug_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await update.message.reply_text("Unauthorized")
         return
 
-    screenshot_dir = settings.screenshot_dir
-    if not os.path.isdir(screenshot_dir):
-        await update.message.reply_text("No screenshots directory found.")
-        return
-
-    # Find all png files sorted by modification time (newest first)
-    files = glob.glob(os.path.join(screenshot_dir, "*.png"))
-    if not files:
-        await update.message.reply_text("No screenshots found.")
-        return
-
-    files.sort(key=os.path.getmtime, reverse=True)
-
-    # Send up to 3 most recent screenshots
-    sent = 0
-    for filepath in files[:3]:
-        try:
-            with open(filepath, "rb") as f:
-                await update.message.reply_photo(
-                    photo=f,
-                    caption=os.path.basename(filepath),
-                )
-            sent += 1
-        except Exception as e:
-            logger.error(f"Failed to send screenshot {filepath}: {e}")
-
-    if sent == 0:
-        await update.message.reply_text("Failed to send screenshots.")
-    else:
-        logger.info(f"Sent {sent} debug screenshot(s) to user {update.effective_user.id}")
+    await update.message.reply_text("Screenshots are no longer retained on disk.")
 
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

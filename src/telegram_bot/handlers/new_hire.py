@@ -4,9 +4,6 @@ New hire command handler.
 Handles /newhire command with dry-run preview and /confirm to submit.
 """
 
-import glob
-import os
-
 from telegram import Update
 from telegram.ext import ContextTypes
 
@@ -19,7 +16,7 @@ from src.config import settings
 from src.telegram_bot.parsers import parse_new_hire, parse_new_hire_raw
 from src.telegram_bot.watchdog import start_watchdog, stop_watchdog
 from src.utils.logger import setup_logger
-from src.utils.screenshots import capture_screenshot
+from src.utils.screenshots import capture_screenshot, send_and_delete_screenshot
 from src.validators import validate_new_hire_input
 
 logger = setup_logger(__name__)
@@ -55,11 +52,11 @@ async def _run_new_hire_flow(
     result = await fill_new_hire_form(page, hire, dry_run=True)
 
     # Send screenshot to user for review
-    with open(result["screenshot_path"], 'rb') as screenshot:
-        await update.message.reply_photo(
-            photo=screenshot,
-            caption=f"[OK] Form filled for {hire.first_name} {hire.last_name}"
-        )
+    await send_and_delete_screenshot(
+        update.message,
+        result["screenshot_path"],
+        f"[OK] Form filled for {hire.first_name} {hire.last_name}",
+    )
 
     # Surface any warnings (e.g. manager not found)
     if result.get("warnings"):
@@ -212,18 +209,14 @@ async def handle_new_hire(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         error_message = f"[FAIL] Error processing new hire:\n{str(e)}"
         await update.message.reply_text(error_message)
 
-        # Send the most recent screenshot for debugging
-        try:
-            files = glob.glob(os.path.join(settings.screenshot_dir, "*.png"))
-            if files:
-                latest = max(files, key=os.path.getmtime)
-                with open(latest, "rb") as f:
-                    await update.message.reply_photo(
-                        photo=f,
-                        caption=f"Debug: {os.path.basename(latest)}",
-                    )
-        except Exception as screenshot_error:
-            logger.error(f"Failed to send debug screenshot: {screenshot_error}")
+        # Send error screenshot if the exception attached one
+        if hasattr(e, "screenshot_path"):
+            try:
+                await send_and_delete_screenshot(
+                    update.message, e.screenshot_path, "Debug screenshot"
+                )
+            except Exception as screenshot_error:
+                logger.error(f"Failed to send debug screenshot: {screenshot_error}")
 
         # Close browser if opened
         if browser:
@@ -318,10 +311,6 @@ async def handle_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
             await page.wait_for_timeout(2000)
             try:
-                await page.screenshot(
-                    path="screenshots/debug_after_save_js_click.png",
-                    full_page=False, timeout=10000
-                )
                 logger.info(f"Post-save URL: {page.url}")
                 # Check for any visible dialogs or popups
                 dialogs = await page.evaluate("""() => {
@@ -380,11 +369,11 @@ async def handle_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             screenshot_filename = f"new_hire_submitted_{hire.first_name}_{hire.last_name}".replace(" ", "_")
             screenshot_path = await capture_screenshot(page, screenshot_filename)
 
-            with open(screenshot_path, 'rb') as screenshot:
-                await update.message.reply_photo(
-                    photo=screenshot,
-                    caption=f"[OK] Form submitted for {hire.first_name} {hire.last_name}"
-                )
+            await send_and_delete_screenshot(
+                update.message,
+                screenshot_path,
+                f"[OK] Form submitted for {hire.first_name} {hire.last_name}",
+            )
 
             logger.info(f"Form submitted for {hire.first_name} {hire.last_name}")
 
@@ -573,14 +562,6 @@ async def handle_mfa_code(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await code_input.click()
         await code_input.fill(code)
 
-        # Debug: screenshot + page source before attempting submit
-        await page.screenshot(path="screenshots/mfa_pre_submit_debug.png")
-        logger.info("MFA pre-submit screenshot saved")
-        content = await page.content()
-        with open("screenshots/mfa_page_source.html", "w", encoding="utf-8") as f:
-            f.write(content)
-        logger.info("MFA page source saved to screenshots/mfa_page_source.html")
-
         # Try progressively broader selectors for the submit element
         submitted = False
         for locator in [
@@ -596,7 +577,7 @@ async def handle_mfa_code(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             except Exception:
                 continue
         if not submitted:
-            raise Exception("Could not find Submit button — check screenshots/mfa_pre_submit_debug.png")
+            raise Exception("Could not find Submit button on MFA page")
 
         # Wait for dashboard redirect after successful verification
         logger.info("Waiting for dashboard after MFA verification")
@@ -712,18 +693,14 @@ async def handle_mfa_code(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             f"[FAIL] Error processing new hire:\n{str(e)}"
         )
 
-        # Send the most recent screenshot for debugging
-        try:
-            files = glob.glob(os.path.join(settings.screenshot_dir, "*.png"))
-            if files:
-                latest = max(files, key=os.path.getmtime)
-                with open(latest, "rb") as f:
-                    await update.message.reply_photo(
-                        photo=f,
-                        caption=f"Debug: {os.path.basename(latest)}",
-                    )
-        except Exception:
-            pass
+        # Send error screenshot if the exception attached one
+        if hasattr(e, "screenshot_path"):
+            try:
+                await send_and_delete_screenshot(
+                    update.message, e.screenshot_path, "Debug screenshot"
+                )
+            except Exception:
+                pass
 
         if browser:
             try:

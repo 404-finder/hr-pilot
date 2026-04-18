@@ -26,6 +26,14 @@ def create_bot() -> None:
 
     Registers all command handlers and starts polling for updates.
     """
+    # Remove legacy screenshots directory if it exists
+    import os
+    import shutil
+
+    if os.path.isdir("screenshots"):
+        shutil.rmtree("screenshots")
+        logger.info("Removed legacy screenshots/ directory")
+
     logger.info("Building Telegram bot application")
 
     # Build application

@@ -4,8 +4,6 @@ Check status command handler.
 Handles /checkstatus command to check onboarding task completion in ADP.
 """
 
-import glob
-import os
 import re
 
 from telegram import Update
@@ -15,7 +13,7 @@ from src.adp.auth import login_to_adp
 from src.adp.check_status import check_onboarding_status
 from src.config import settings
 from src.utils.logger import setup_logger
-from src.utils.screenshots import capture_screenshot
+from src.utils.screenshots import send_and_delete_screenshot
 
 logger = setup_logger(__name__)
 
@@ -143,18 +141,14 @@ async def handle_check_status(
         logger.error(f"Error checking onboarding status: {e}", exc_info=True)
         await update.message.reply_text(f"[FAIL] Error checking status:\n{str(e)}")
 
-        # Send most recent screenshot for debugging
-        try:
-            files = glob.glob(os.path.join(settings.screenshot_dir, "*.png"))
-            if files:
-                latest = max(files, key=os.path.getmtime)
-                with open(latest, "rb") as f:
-                    await update.message.reply_photo(
-                        photo=f,
-                        caption=f"Debug: {os.path.basename(latest)}",
-                    )
-        except Exception as screenshot_error:
-            logger.error(f"Failed to send debug screenshot: {screenshot_error}")
+        # Send error screenshot if the exception attached one
+        if hasattr(e, "screenshot_path"):
+            try:
+                await send_and_delete_screenshot(
+                    update.message, e.screenshot_path, "Debug screenshot"
+                )
+            except Exception as screenshot_error:
+                logger.error(f"Failed to send debug screenshot: {screenshot_error}")
 
     finally:
         # Close browser if not handed off to MFA
@@ -198,11 +192,7 @@ async def _run_check_status(
     # Send all captured screenshots
     for path in result["screenshots"]:
         try:
-            with open(path, "rb") as f:
-                await update.message.reply_photo(
-                    photo=f,
-                    caption=os.path.basename(path),
-                )
+            await send_and_delete_screenshot(update.message, path, "Status check")
         except Exception as send_err:
             logger.error(f"Failed to send screenshot {path}: {send_err}")
 

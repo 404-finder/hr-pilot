@@ -8,6 +8,13 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from src.config import settings
+from src.config_tables import (
+    JOB_TITLES,
+    REASON_FOR_HIRE,
+    STORE_CONFIG,
+    STORE_LOCATIONS,
+    WORK_SCHEDULE,
+)
 from src.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -46,7 +53,22 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         logger.warning(f"Unauthorized access attempt from user {update.effective_user.id}")
         return
 
-    help_message = """
+    # Build dynamic field options from config_tables
+    store_parts = []
+    for prefix, config in STORE_CONFIG.items():
+        state = config["worked_in_state"].split(" - ", 1)[1]
+        stores = ", ".join(
+            f"{num} ({name})"
+            for num, name in STORE_LOCATIONS.items()
+            if num.startswith(prefix)
+        )
+        store_parts.append(f"**{state}:** {stores}")
+    store_options = " — ".join(store_parts)
+    job_titles = ", ".join(sorted(JOB_TITLES.keys()))
+    work_schedules = ", ".join(sorted(WORK_SCHEDULE.keys()))
+    reasons = ", ".join(sorted(REASON_FOR_HIRE.keys()))
+
+    help_message = f"""
 📋 HR Pilot Usage Guide
 
 **New Hire Command**
@@ -66,11 +88,11 @@ Start Date: 03/01/2026
 Reason: New Hire
 
 **Field Options:**
-• Store Number: **Texas:** 39101 (Hewitt Drive), 39102 (Interstate 35), 39103 (South Valley Mills), 39104 (North Valley Mills) — **Colorado:** 33561 (Austin Bluffs Pkwy), 33562 (Galley Rd), 33563 (Constitution Ave), 33564 (Cheyenne Meadows Rd), 33565 (Mesa Ridge Pkwy), 33566 (South Academy Blvd), 33567 (Stetson Hills Blvd)
-• Job Title: assist manager, co-manager, crew, dist manager, gen manager, manager, sal manager
-• Work Schedule: full time, part time
+• Store Number: {store_options}
+• Job Title: {job_titles}
+• Work Schedule: {work_schedules}
 • Pay Type: hourly, salary
-• Reason: current, new hire (optional, defaults to "new hire")
+• Reason: {reasons} (optional, defaults to "new hire")
 
 **Check Status Command**
 Check if a new hire has completed their onboarding tasks:

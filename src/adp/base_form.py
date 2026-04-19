@@ -4,6 +4,7 @@ Shared form-filling utilities for ADP automation.
 Provides reusable async functions for common form interactions.
 """
 
+import re
 from typing import Optional
 
 from playwright.async_api import Page
@@ -145,20 +146,19 @@ async def fill_mdf_dropdown(
     page: Page,
     selector: str,
     search_code: str,
-    match_text: str,
     timeout: int = 20000,
 ) -> None:
     """Fill an ADP MDFSelectBox React Select dropdown.
 
     ADP uses MDFSelectBox (a React Select variant) for most dropdowns.
     These require clicking to open, typing a short code to filter options,
-    waiting for the list to load, then clicking the matching option.
+    waiting for the list to load, then clicking the option whose text
+    starts with the stable code prefix.
 
     Args:
         page: Playwright page object.
         selector: CSS selector for the dropdown input element.
-        search_code: Short prefix to type to filter options (e.g., "BE").
-        match_text: Unique substring to identify the correct option.
+        search_code: Prefix to type and match against (e.g., "BE", "ASSTMNGR").
         timeout: Maximum wait time in milliseconds.
     """
     await page.wait_for_selector(selector, timeout=timeout)
@@ -166,11 +166,21 @@ async def fill_mdf_dropdown(
     await page.fill(selector, search_code)
     logger.debug(f"MDF dropdown {selector}: typed '{search_code}'")
     await page.wait_for_timeout(1500)
-    option_selector = f'[class*="MDFSelectBox__option"]:has-text("{match_text}")'
-    await page.wait_for_selector(option_selector, timeout=timeout)
-    await page.click(option_selector)
+    code_pattern = re.compile(rf"^\s*{re.escape(search_code)}\b", re.IGNORECASE)
+    option = page.locator('[class*="MDFSelectBox__option"]').filter(
+        has_text=code_pattern
+    )
+    await option.first.wait_for(timeout=timeout)
+    count = await option.count()
+    if count > 1:
+        texts = await option.all_text_contents()
+        logger.warning(
+            f"MDF dropdown {selector}: {count} options matched "
+            f"'{search_code}', selecting first. Matches: {texts}"
+        )
+    await option.first.click()
     await page.wait_for_timeout(500)
-    logger.debug(f"MDF dropdown {selector}: selected '{match_text}'")
+    logger.debug(f"MDF dropdown {selector}: selected option matching '{search_code}'")
 
 
 async def click_visible_next_button(page: Page, timeout: int = 20000) -> None:

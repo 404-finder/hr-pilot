@@ -52,13 +52,13 @@ LOCATION_MANAGERS = {
 }
 
 JOB_TITLES = {
-    "assist manager": "ASSTMNGR - ASSIST MANAGER",
-    "co-manager": "CO-MGR-CO-MANAGER",
-    "dist manager": "DISTMNGER - DISTRICT MANAGER",
-    "gen manager": "GNRSMNGR - GENERAL MANAGER",
-    "manager": "Manager Trainee",
-    "sal manager": "SALARYMG - SALARY MANAGER",
-    "crew": "TEAMMEMB - TEAM MEMBER",
+    "assist manager": "ASSTMNGR - ASSISTANT MANAGER",
+    "co-manager":     "CO-MGR - CO-MANAGER",
+    "dist manager":   "DISTMNGR - DISTRICT MANAGER",
+    "gen manager":    "GNRSMNGR - GENERAL MANAGER",
+    "manager":        "MANAGER - Manager Trainee",
+    "sal manager":    "SALARYMG - SALARY MANAGER",
+    "crew":           "TEAMMEMB - TEAM MEMBER",
 }
 
 WORK_SCHEDULE = {

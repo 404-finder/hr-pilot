@@ -279,20 +279,19 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
 
         # Select reason for hire (resolve from config_tables)
         reason_label = REASON_FOR_HIRE[hire.reason]
-        reason_match = reason_label.split(" - ", 1)[1].strip() if " - " in reason_label else reason_label
-        await fill_mdf_dropdown(page, REASON_FOR_HIRE_SELECT, get_search_code(reason_label), reason_match)
+        await fill_mdf_dropdown(page, REASON_FOR_HIRE_SELECT, get_search_code(reason_label))
         logger.debug(f"Selected reason for hire: {reason_label}")
 
         # Select company code (from store config)
         company_code = store_config["company_code"]
-        await fill_mdf_dropdown(page, COMPANY_CODE_SELECT, get_search_code(company_code), company_code)
+        await fill_mdf_dropdown(page, COMPANY_CODE_SELECT, get_search_code(company_code))
         logger.debug(f"Selected company code: {company_code}")
 
         # Company code selection can trigger ADP to re-render dependent fields
         await page.wait_for_timeout(2000)
 
         # Select tax ID type (always SSN)
-        await fill_mdf_dropdown(page, TAX_ID_TYPE_SELECT, "United", "Social Security", timeout=20000)
+        await fill_mdf_dropdown(page, TAX_ID_TYPE_SELECT, "United States Social", timeout=20000)
         logger.debug("Selected tax ID type: SSN")
 
         # Wait for Associate ID to generate
@@ -465,7 +464,7 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         # Select Worked In State (from store config)
         worked_in_state = store_config["worked_in_state"]
         logger.info(f"Selecting worked in state: {worked_in_state}")
-        await fill_mdf_dropdown(page, WORKED_IN_STATE_SELECT, get_search_code(worked_in_state), worked_in_state.split(" - ", 1)[1])
+        await fill_mdf_dropdown(page, WORKED_IN_STATE_SELECT, get_search_code(worked_in_state))
         logger.debug(f"Selected worked in state: {worked_in_state}")
 
         # Reports To (Manager) sub-flow (auto-derived from store number)
@@ -526,7 +525,7 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         # Select E-Verify Work Location (from store number)
         everify_location = get_everify_location(hire.store_number)
         logger.info(f"Selecting E-Verify work location: {everify_location}")
-        await fill_mdf_dropdown(page, E_VERIFY_LOCATION_SELECT, everify_location, everify_location)
+        await fill_mdf_dropdown(page, E_VERIFY_LOCATION_SELECT, everify_location)
         logger.debug(f"Selected E-Verify location: {everify_location}")
 
         # Save modal
@@ -568,35 +567,18 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
 
         # Job Title (resolve from config_tables)
         job_title_label = JOB_TITLES[hire.job_title]
-        job_title_match = job_title_label.split(" - ", 1)[1].strip() if " - " in job_title_label else job_title_label
         logger.info(f"Filling Job Title with value: {job_title_label}")
-        await fill_mdf_dropdown(page, JOB_TITLE_SELECT, get_search_code(job_title_label), job_title_match)
-        job_title_el = await page.query_selector(f'[class*="MDFSelectBox__single-value"]:has-text("{job_title_match}")')
-        if job_title_el:
-            logger.info(f"CONFIRMED: Job Title = '{job_title_match}'")
-        else:
-            logger.warning(f"WARNING: Job Title may not have filled correctly (expected '{job_title_match}')")
+        await fill_mdf_dropdown(page, JOB_TITLE_SELECT, get_search_code(job_title_label))
 
         # Worker Category (resolve from config_tables)
         worker_category_label = WORK_SCHEDULE[hire.work_schedule]
-        worker_category_match = worker_category_label.split(" - ", 1)[1].strip() if " - " in worker_category_label else worker_category_label
         logger.info(f"Filling Worker Category with value: {worker_category_label}")
-        await fill_mdf_dropdown(page, WORKER_CATEGORY_SELECT, get_search_code(worker_category_label), worker_category_match)
-        worker_cat_el = await page.query_selector(f'[class*="MDFSelectBox__single-value"]:has-text("{worker_category_match}")')
-        if worker_cat_el:
-            logger.info(f"CONFIRMED: Worker Category = '{worker_category_match}'")
-        else:
-            logger.warning(f"WARNING: Worker Category may not have filled correctly (expected '{worker_category_match}')")
+        await fill_mdf_dropdown(page, WORKER_CATEGORY_SELECT, get_search_code(worker_category_label))
 
         # Benefits Eligibility Class (from store config)
         benefits_eligibility = store_config["benefits_eligibility"]
         logger.info(f"Filling Benefits Eligibility Class with value: {benefits_eligibility}")
-        await fill_mdf_dropdown(page, BENEFITS_ELIGIBILITY_CLASS_SELECT, "BE", "Benefit Eligible")
-        benefits_el = await page.query_selector('[class*="MDFSelectBox__single-value"]:has-text("Benefit Eligible")')
-        if benefits_el:
-            logger.info("CONFIRMED: Benefits Eligibility Class = 'Benefit Eligible'")
-        else:
-            logger.warning("WARNING: Benefits Eligibility Class may not have filled correctly")
+        await fill_mdf_dropdown(page, BENEFITS_ELIGIBILITY_CLASS_SELECT, "BE")
 
         # Calculate Using Measurement Periods radio (from store config)
         if store_config["measurement_periods"]:
@@ -607,12 +589,7 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         # Home Department (auto-derived from store number + job title)
         home_department = get_home_department(hire.store_number, hire.job_title)
         logger.info(f"Filling Home Department with value: {home_department}")
-        await fill_mdf_dropdown(page, HOME_DEPARTMENT_SELECT, home_department, home_department)
-        home_dept_el = await page.query_selector(f'[class*="MDFSelectBox__single-value"]:has-text("{home_department}")')
-        if home_dept_el:
-            logger.info(f"CONFIRMED: Home Department = '{home_department}'")
-        else:
-            logger.warning(f"WARNING: Home Department may not have filled correctly (expected '{home_department}')")
+        await fill_mdf_dropdown(page, HOME_DEPARTMENT_SELECT, home_department)
 
         # Proceed to Payroll section
         logger.info("Proceeding to Payroll section")
@@ -641,12 +618,7 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
 
         # Compensation Type (always Hourly)
         logger.info("Filling Compensation Type with value: Hourly")
-        await fill_mdf_dropdown(page, COMPENSATION_TYPE_SELECT, "Hour", "Hourly")
-        comp_el = await page.query_selector('[class*="MDFSelectBox__single-value"]:has-text("Hourly")')
-        if comp_el:
-            logger.info("CONFIRMED: Compensation Type = 'Hourly'")
-        else:
-            logger.warning("WARNING: Compensation Type may not have filled correctly")
+        await fill_mdf_dropdown(page, COMPENSATION_TYPE_SELECT, "Hour")
 
         # Regular Pay Rate — use click+triple-click+type to trigger React onChange
         logger.info(f"Filling Regular Pay Rate with value: {hire.pay_rate}")
@@ -676,8 +648,7 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         # Use worked_in_state ("TX - Texas" / "CO - Colorado") to derive search code and state name
         # as sui_sdi_tax_code has inconsistent formatting ("TX -53 -Texas" / "CO -15 - Colorado")
         sui_sdi_tax_code = store_config["sui_sdi_tax_code"]
-        state_name = worked_in_state.split(" - ", 1)[1]
-        await fill_mdf_dropdown(page, SUI_SDI_TAX_CODE_SELECT, get_search_code(worked_in_state), state_name)
+        await fill_mdf_dropdown(page, SUI_SDI_TAX_CODE_SELECT, get_search_code(worked_in_state))
         logger.debug(f"Selected SUI/SDI tax code: {sui_sdi_tax_code}")
 
         # Proceed to Direct Deposit section

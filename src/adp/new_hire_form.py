@@ -54,6 +54,7 @@ from src.adp.selectors.new_hire import (
     SAVE_AND_EXIT_BUTTON,
     SAVE_MANAGER_BUTTON,
     SAVE_MODAL_BUTTON,
+    SEI_SELECT,
     SUI_SDI_TAX_CODE_SELECT,
     TAX_ID_TYPE_SELECT,
     TAX_NEXT_BUTTON,
@@ -522,7 +523,17 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
             await page.click(SAVE_MANAGER_BUTTON)
             logger.debug(f"Assigned manager: {manager['name']}")
 
-        # Select E-Verify Work Location (from store number)
+        # Select SEI (Self Employment Individual) - always N/A for hourly/salary employees
+        logger.info("Selecting SEI: N/A - Not Applicable")
+        try:
+            await fill_mdf_dropdown(page, SEI_SELECT, "N/A")
+            logger.debug("Selected SEI: N/A - Not Applicable")
+        except Exception as e:
+            warn_msg = f"SEI selection failed: {e} — continuing without SEI"
+            logger.warning(warn_msg)
+            warnings.append(warn_msg)
+
+        # E-Verify location is a legal requirement — must hard-fail
         everify_location = get_everify_location(hire.store_number)
         logger.info(f"Selecting E-Verify work location: {everify_location}")
         await fill_mdf_dropdown(page, E_VERIFY_LOCATION_SELECT, everify_location)

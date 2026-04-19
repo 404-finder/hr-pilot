@@ -62,6 +62,9 @@ SAVE_MANAGER_BUTTON = '#populateReportToValue_Id'
 # E-Verify work location
 E_VERIFY_LOCATION_SELECT = '#eVerifyLocationSelectBox'
 
+# Self Employment Individual (SEI)
+SEI_SELECT = '#selfEmpIndList_Id'
+
 # Save modal
 SAVE_MODAL_BUTTON = '#ENHInitiatePrehire'
 

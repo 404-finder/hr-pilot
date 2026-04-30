@@ -15,6 +15,7 @@ from src.config_tables import (
     REASON_FOR_HIRE,
     TAX_ID_TYPE,
     WORK_SCHEDULE,
+    get_everify_display_text,
     get_everify_location,
     get_home_department,
     get_manager,
@@ -533,11 +534,22 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
             logger.warning(warn_msg)
             warnings.append(warn_msg)
 
-        # E-Verify location is a legal requirement — must hard-fail
-        everify_location = get_everify_location(hire.store_number)
-        logger.info(f"Selecting E-Verify work location: {everify_location}")
-        await fill_mdf_dropdown(page, E_VERIFY_LOCATION_SELECT, everify_location)
-        logger.debug(f"Selected E-Verify location: {everify_location}")
+        # E-Verify location is a legal I-9 requirement — hard-fail on mismatch
+        display_text = get_everify_display_text(hire.store_number)
+        logger.info(f"Filling E-Verify location: {display_text}")
+        try:
+            state_prefix = display_text.split(" - ", 1)[0]  # "TX" or "CO"
+            await fill_mdf_dropdown(
+                page,
+                E_VERIFY_LOCATION_SELECT,
+                search_code=state_prefix,
+                exact_text=display_text,
+            )
+        except Exception as e:
+            raise FormSubmissionError(
+                f"E-Verify location match failed for store "
+                f"{hire.store_number}: expected '{display_text}'"
+            ) from e
 
         # Save modal
         logger.info("Saving 'Ask the New Hire' modal")

@@ -37,6 +37,22 @@ STORE_LOCATIONS = {
     "33567":"Stetson Hills Boulevard",
 }
 
+EVERIFY_LOCATIONS: dict[str, str] = {
+    # Texas Stores
+    "39101": "TX - 225 North Hewitt Drive",
+    "39102": "TX - 1517 Interstate 35",
+    "39103": "TX - 1320 South Valley Mills Drive",
+    "39104": "TX - 1412 North Valley Mills Drive",
+    # Colorado Stores
+    "33561": "CO - 4595 Austin Bluffs Parkway",
+    "33562": "CO - 2909 Galley Road",
+    "33563": "CO - 5859 Constitution Avenue",
+    "33564": "CO - 716 Cheyenne Meadows Road",
+    "33565": "CO - 6965 Mesa Ridge Parkway",
+    "33566": "CO - 1877 South Academy Boulevard",
+    "33567": "CO - 5885 Stetson Hills Boulevard",
+}
+
 LOCATION_MANAGERS = {
     "39101": {"name": "Chandler Wilder", "search": "Wilder"},
     "39102": {"name": "Brandon Hudgens", "search": "Hudgens"},
@@ -212,6 +228,18 @@ def get_everify_location(store_number: str) -> str:
         "North Valley Mills"
     """
     return STORE_LOCATIONS[store_number]
+
+
+def get_everify_display_text(store_number: str) -> str:
+    """Return exact ADP E-Verify dropdown display text for a store.
+
+    Raises KeyError if store_number is not configured.
+    """
+    if store_number not in EVERIFY_LOCATIONS:
+        raise KeyError(
+            f"No E-Verify display text configured for store {store_number}"
+        )
+    return EVERIFY_LOCATIONS[store_number]
 
 
 def get_manager(store_number: str) -> dict:

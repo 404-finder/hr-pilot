@@ -146,6 +146,7 @@ async def fill_mdf_dropdown(
     page: Page,
     selector: str,
     search_code: str,
+    exact_text: str | None = None,
     timeout: int = 20000,
 ) -> None:
     """Fill an ADP MDFSelectBox React Select dropdown.
@@ -159,6 +160,8 @@ async def fill_mdf_dropdown(
         page: Playwright page object.
         selector: CSS selector for the dropdown input element.
         search_code: Prefix to type and match against (e.g., "BE", "ASSTMNGR").
+        exact_text: If provided, match option by exact display text instead of
+            anchored prefix regex. The search_code is still typed to filter the list.
         timeout: Maximum wait time in milliseconds.
     """
     await page.wait_for_selector(selector, timeout=timeout)
@@ -166,6 +169,18 @@ async def fill_mdf_dropdown(
     await page.fill(selector, search_code)
     logger.debug(f"MDF dropdown {selector}: typed '{search_code}'")
     await page.wait_for_timeout(1500)
+
+    # Exact-text match branch — bypass anchored prefix regex
+    if exact_text is not None:
+        option = page.locator(
+            '[class*="MDFSelectBox__option"]'
+        ).filter(has_text=exact_text).first
+        await option.wait_for(state="visible", timeout=timeout)
+        await option.click()
+        await page.wait_for_timeout(500)
+        logger.debug(f"MDF dropdown {selector}: selected exact match '{exact_text}'")
+        return
+
     code_pattern = re.compile(rf"^\s*{re.escape(search_code)}\b", re.IGNORECASE)
     option = page.locator('[class*="MDFSelectBox__option"]').filter(
         has_text=code_pattern

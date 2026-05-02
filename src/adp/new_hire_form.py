@@ -586,40 +586,44 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
             radios = page.locator(FORM_I9_ELECTRONIC)
             await radios.first.wait_for(state="visible", timeout=20000)
             count = await radios.count()
-            diag = await page.evaluate("""() => {
-                const els = document.querySelectorAll('sdf-radio-button[value="E"]');
-                const out = [];
-                els.forEach((el, i) => {
-                    const ancestors = [];
-                    let p = el.parentElement;
-                    for (let d = 0; d < 6 && p; d++) {
-                        ancestors.push({
-                            depth: d,
-                            tag: p.tagName,
-                            id: p.id || '',
-                            cls: (p.className.toString?.() || '').slice(0, 60),
-                            text: (p.textContent || '').trim().slice(0, 100)
-                        });
-                        p = p.parentElement;
-                    }
-                    out.push({
-                        index: i,
-                        aria_checked: el.getAttribute('aria-checked'),
-                        aria_label: el.getAttribute('aria-label') || '',
-                        name: el.getAttribute('name') || '',
-                        visible_in_viewport: (() => {
-                            const r = el.getBoundingClientRect();
-                            return r.top >= 0 && r.top < window.innerHeight && r.width > 0;
-                        })(),
-                        ancestors: ancestors
-                    });
-                });
-                return out;
-            }""")
-            logger.info(f"FORM I-9 DIAGNOSTIC count={count}: {diag}")
+            logger.info(f"FORM I-9 DIAGNOSTIC count={count}")
+
+            diag_entries = []
+            for i in range(count):
+                try:
+                    entry = await radios.nth(i).evaluate("""(el) => {
+                        const ancestors = [];
+                        let p = el.parentElement;
+                        for (let d = 0; d < 6 && p; d++) {
+                            ancestors.push({
+                                depth: d,
+                                tag: p.tagName,
+                                id: p.id || '',
+                                cls: (p.className.toString?.() || '').slice(0, 80),
+                                text: (p.textContent || '').trim().slice(0, 150)
+                            });
+                            p = p.parentElement;
+                        }
+                        const r = el.getBoundingClientRect();
+                        return {
+                            aria_checked: el.getAttribute('aria-checked'),
+                            aria_label: el.getAttribute('aria-label') || '',
+                            name_attr: el.getAttribute('name') || '',
+                            rect: Math.round(r.left) + ',' + Math.round(r.top) + ' ' +
+                                  Math.round(r.width) + 'x' + Math.round(r.height),
+                            ancestors: ancestors
+                        };
+                    }""")
+                    diag_entries.append({"index": i, **entry})
+                except Exception as e:
+                    diag_entries.append({"index": i, "error": str(e)})
+
+            for e in diag_entries:
+                logger.info(f"FORM I-9 RADIO {e.get('index')}: {e}")
+
             raise FormSubmissionError(
-                f"DIAGNOSTIC: Found {count} value='E' radios — see log "
-                f"for ancestor info, then implement scoped selector."
+                f"DIAGNOSTIC: Found {count} value='E' radios — see "
+                f"FORM I-9 RADIO log lines for ancestor info."
             )
         except FormSubmissionError:
             raise

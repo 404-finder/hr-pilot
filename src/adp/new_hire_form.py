@@ -586,20 +586,41 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
             radios = page.locator(FORM_I9_ELECTRONIC)
             await radios.first.wait_for(state="visible", timeout=20000)
             count = await radios.count()
-            if count != 1:
-                raise FormSubmissionError(
-                    f"Form I-9 selector matched {count} elements, expected 1. "
-                    f"ADP may have added another value='E' radio — "
-                    f"selector needs scoping."
-                )
-            await radios.first.evaluate("el => el.click()")
-            await page.wait_for_timeout(500)
-            aria_checked = await radios.first.get_attribute("aria-checked")
-            if aria_checked != "true":
-                raise FormSubmissionError(
-                    f"Form I-9 radio did not register click "
-                    f"(aria-checked={aria_checked})"
-                )
+            diag = await page.evaluate("""() => {
+                const els = document.querySelectorAll('sdf-radio-button[value="E"]');
+                const out = [];
+                els.forEach((el, i) => {
+                    const ancestors = [];
+                    let p = el.parentElement;
+                    for (let d = 0; d < 6 && p; d++) {
+                        ancestors.push({
+                            depth: d,
+                            tag: p.tagName,
+                            id: p.id || '',
+                            cls: (p.className.toString?.() || '').slice(0, 60),
+                            text: (p.textContent || '').trim().slice(0, 100)
+                        });
+                        p = p.parentElement;
+                    }
+                    out.push({
+                        index: i,
+                        aria_checked: el.getAttribute('aria-checked'),
+                        aria_label: el.getAttribute('aria-label') || '',
+                        name: el.getAttribute('name') || '',
+                        visible_in_viewport: (() => {
+                            const r = el.getBoundingClientRect();
+                            return r.top >= 0 && r.top < window.innerHeight && r.width > 0;
+                        })(),
+                        ancestors: ancestors
+                    });
+                });
+                return out;
+            }""")
+            logger.info(f"FORM I-9 DIAGNOSTIC count={count}: {diag}")
+            raise FormSubmissionError(
+                f"DIAGNOSTIC: Found {count} value='E' radios — see log "
+                f"for ancestor info, then implement scoped selector."
+            )
         except FormSubmissionError:
             raise
         except Exception as e:

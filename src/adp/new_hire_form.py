@@ -579,11 +579,22 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
 
         # Form I-9: hard-fail (legal I-9 requirement, same as E-Verify)
         logger.info("Selecting Form I-9: Yes, electronically")
+        # SEI selection just above can reset the I-9 default — wait for
+        # ADP to settle before interacting with the I-9 radio.
+        await page.wait_for_timeout(1000)
         try:
-            radio = page.locator(FORM_I9_ELECTRONIC)
-            await radio.evaluate("el => el.click()")
+            radios = page.locator(FORM_I9_ELECTRONIC)
+            await radios.first.wait_for(state="visible", timeout=20000)
+            count = await radios.count()
+            if count != 1:
+                raise FormSubmissionError(
+                    f"Form I-9 selector matched {count} elements, expected 1. "
+                    f"ADP may have added another value='E' radio — "
+                    f"selector needs scoping."
+                )
+            await radios.first.evaluate("el => el.click()")
             await page.wait_for_timeout(500)
-            aria_checked = await radio.get_attribute("aria-checked")
+            aria_checked = await radios.first.get_attribute("aria-checked")
             if aria_checked != "true":
                 raise FormSubmissionError(
                     f"Form I-9 radio did not register click "

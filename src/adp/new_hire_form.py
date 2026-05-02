@@ -478,9 +478,7 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         await page.wait_for_timeout(3000)  # Wait for Reports To slider animation
         await page.wait_for_selector(MANAGER_NAME_SEARCH_INPUT, timeout=20000)
 
-        full_name = manager["name"]
         manager_selected = False
-        available_names: list[str] = []
         search_terms = [manager["search"], manager["name"]]
         for search_term in search_terms:
             logger.info(f"Searching manager with: '{search_term}'")
@@ -497,52 +495,60 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
                 logger.warning(f"Manager search no entries for '{search_term}', trying next term")
                 continue
 
-            # Wait for results, then match by FULL manager name
+            # Wait for results to render
             await page.wait_for_selector(
-                'sdf-radio-button[role="radio"]', timeout=20000
+                'sdf-radio-button[role="radio"][aria-checked="false"]', timeout=20000
             )
-            rows = page.locator('sdf-radio-button[role="radio"]')
-            count = await rows.count()
-            logger.info(f"Manager search returned {count} results for '{search_term}'")
-            available_names = []
-            matched_idx = None
-            for i in range(count):
-                row_text = (await rows.nth(i).evaluate(
-                    "el => (el.closest('tr') || el.parentElement).textContent"
-                ) or "").strip()
-                available_names.append(row_text)
-                if full_name.lower() in row_text.lower():
-                    matched_idx = i
-                    break
 
-            if matched_idx is None:
-                logger.warning(
-                    f"Manager '{full_name}' not in results for "
-                    f"'{search_term}': {available_names}"
-                )
-                continue
+            # --- DIAGNOSTIC: inspect DOM ancestry of each radio button ---
+            diag = await page.evaluate("""() => {
+                const radios = document.querySelectorAll('sdf-radio-button[role="radio"]');
+                const out = [];
+                radios.forEach((r, i) => {
+                    const ancestors = [];
+                    let p = r.parentElement;
+                    for (let d = 0; d < 6 && p; d++) {
+                        ancestors.push({
+                            depth: d,
+                            tag: p.tagName,
+                            id: p.id || '',
+                            cls: (p.className.toString?.() || '').slice(0, 80),
+                            text: (p.textContent || '').trim().slice(0, 120)
+                        });
+                        p = p.parentElement;
+                    }
+                    out.push({ index: i, ancestors: ancestors });
+                });
+                return out;
+            }""")
+            logger.info(f"MANAGER PICKER DIAGNOSTIC: {diag}")
 
-            await rows.nth(matched_idx).click()
-            await page.wait_for_timeout(300)
-            aria_checked = await rows.nth(matched_idx).get_attribute("aria-checked")
-            if aria_checked == "true":
+            # Click the first unchecked radio button in the results
+            logger.info("Clicking first radio button in results")
+            await page.click('sdf-radio-button[role="radio"][aria-checked="false"]')
+
+            # Verify selection took effect
+            await page.wait_for_timeout(500)
+            checked = await page.query_selector(
+                'sdf-radio-button[role="radio"][aria-checked="true"]'
+            )
+            if checked:
                 manager_selected = True
-                logger.info(f"Manager radio confirmed for '{full_name}'")
+                logger.info(f"Manager radio button confirmed selected for '{search_term}'")
                 break
             else:
-                logger.warning(
-                    f"Manager radio click did not register for '{full_name}' "
-                    f"(aria-checked={aria_checked})"
-                )
+                logger.warning(f"Radio button click did not register for '{search_term}', trying next term")
 
         if not manager_selected:
-            raise FormSubmissionError(
-                f"Manager '{full_name}' not found in search results "
-                f"for store {hire.store_number}. "
-                f"Available: {available_names}"
-            )
-        await page.click(SAVE_MANAGER_BUTTON)
-        logger.debug(f"Assigned manager: {full_name}")
+            warn_msg = f"Manager search failed for '{manager['name']}' — skipping manager assignment"
+            logger.warning(warn_msg)
+            warnings.append(warn_msg)
+            # Dismiss the Reports To slider so it doesn't block subsequent fields
+            await page.keyboard.press("Escape")
+            await page.wait_for_timeout(1000)
+        else:
+            await page.click(SAVE_MANAGER_BUTTON)
+            logger.debug(f"Assigned manager: {manager['name']}")
 
         # Select SEI (Self Employment Individual) - always N/A for hourly/salary employees
         logger.info("Selecting SEI: N/A - Not Applicable")

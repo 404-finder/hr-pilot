@@ -62,6 +62,13 @@ SAVE_MANAGER_BUTTON = '#populateReportToValue_Id'
 # E-Verify work location
 E_VERIFY_LOCATION_SELECT = '#eVerifyLocationSelectBox'
 
+# Form I-9 indicator (electronically)
+# Scoped to the Ask the New Hire modal — value="E" is unique within
+# this modal today, but the modal also contains other radios (e.g.
+# Works from Home with value="Yes"/"No"), so scoping is required
+# defense against future ADP additions.
+FORM_I9_ELECTRONIC = '#ENHAskNewhire sdf-radio-button[value="E"]'
+
 # Self Employment Individual (SEI)
 SEI_SELECT = '#selfEmpIndList_Id'
 

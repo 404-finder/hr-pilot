@@ -36,6 +36,7 @@ from src.adp.selectors.new_hire import (
     EMPLOYMENT_VALIDATION_POPUP_GO_TO_NEXT,
     EMPLOYMENT_VALIDATION_POPUP_GO_TO_NEXT_ALT,
     E_VERIFY_LOCATION_SELECT,
+    FORM_I9_ELECTRONIC,
     FIRST_NAME_INPUT,
     HIRE_DATE_INPUT,
     HOME_DEPARTMENT_SELECT,
@@ -477,7 +478,9 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         await page.wait_for_timeout(3000)  # Wait for Reports To slider animation
         await page.wait_for_selector(MANAGER_NAME_SEARCH_INPUT, timeout=20000)
 
+        full_name = manager["name"]
         manager_selected = False
+        available_names: list[str] = []
         search_terms = [manager["search"], manager["name"]]
         for search_term in search_terms:
             logger.info(f"Searching manager with: '{search_term}'")
@@ -494,35 +497,52 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
                 logger.warning(f"Manager search no entries for '{search_term}', trying next term")
                 continue
 
-            # Click the first unchecked radio button in the results
-            logger.info("Clicking first radio button in results")
+            # Wait for results, then match by FULL manager name
             await page.wait_for_selector(
-                'sdf-radio-button[role="radio"][aria-checked="false"]', timeout=20000
+                'sdf-radio-button[role="radio"]', timeout=20000
             )
-            await page.click('sdf-radio-button[role="radio"][aria-checked="false"]')
+            rows = page.locator('sdf-radio-button[role="radio"]')
+            count = await rows.count()
+            logger.info(f"Manager search returned {count} results for '{search_term}'")
+            available_names = []
+            matched_idx = None
+            for i in range(count):
+                row_text = (await rows.nth(i).evaluate(
+                    "el => (el.closest('tr') || el.parentElement).textContent"
+                ) or "").strip()
+                available_names.append(row_text)
+                if full_name.lower() in row_text.lower():
+                    matched_idx = i
+                    break
 
-            # Verify selection took effect
-            await page.wait_for_timeout(500)
-            checked = await page.query_selector(
-                'sdf-radio-button[role="radio"][aria-checked="true"]'
-            )
-            if checked:
+            if matched_idx is None:
+                logger.warning(
+                    f"Manager '{full_name}' not in results for "
+                    f"'{search_term}': {available_names}"
+                )
+                continue
+
+            await rows.nth(matched_idx).click()
+            await page.wait_for_timeout(300)
+            aria_checked = await rows.nth(matched_idx).get_attribute("aria-checked")
+            if aria_checked == "true":
                 manager_selected = True
-                logger.info(f"Manager radio button confirmed selected for '{search_term}'")
+                logger.info(f"Manager radio confirmed for '{full_name}'")
                 break
             else:
-                logger.warning(f"Radio button click did not register for '{search_term}', trying next term")
+                logger.warning(
+                    f"Manager radio click did not register for '{full_name}' "
+                    f"(aria-checked={aria_checked})"
+                )
 
         if not manager_selected:
-            warn_msg = f"Manager search failed for '{manager['name']}' — skipping manager assignment"
-            logger.warning(warn_msg)
-            warnings.append(warn_msg)
-            # Dismiss the Reports To slider so it doesn't block subsequent fields
-            await page.keyboard.press("Escape")
-            await page.wait_for_timeout(1000)
-        else:
-            await page.click(SAVE_MANAGER_BUTTON)
-            logger.debug(f"Assigned manager: {manager['name']}")
+            raise FormSubmissionError(
+                f"Manager '{full_name}' not found in search results "
+                f"for store {hire.store_number}. "
+                f"Available: {available_names}"
+            )
+        await page.click(SAVE_MANAGER_BUTTON)
+        logger.debug(f"Assigned manager: {full_name}")
 
         # Select SEI (Self Employment Individual) - always N/A for hourly/salary employees
         logger.info("Selecting SEI: N/A - Not Applicable")
@@ -549,6 +569,25 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
             raise FormSubmissionError(
                 f"E-Verify location match failed for store "
                 f"{hire.store_number}: expected '{display_text}'"
+            ) from e
+
+        # Form I-9: hard-fail (legal I-9 requirement, same as E-Verify)
+        logger.info("Selecting Form I-9: Yes, electronically")
+        try:
+            radio = page.locator(FORM_I9_ELECTRONIC)
+            await radio.evaluate("el => el.click()")
+            await page.wait_for_timeout(500)
+            aria_checked = await radio.get_attribute("aria-checked")
+            if aria_checked != "true":
+                raise FormSubmissionError(
+                    f"Form I-9 radio did not register click "
+                    f"(aria-checked={aria_checked})"
+                )
+        except FormSubmissionError:
+            raise
+        except Exception as e:
+            raise FormSubmissionError(
+                f"Form I-9 radio selection failed: {e}"
             ) from e
 
         # Save modal

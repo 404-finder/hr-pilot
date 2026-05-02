@@ -577,60 +577,11 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
                 f"{hire.store_number}: expected '{display_text}'"
             ) from e
 
-        # Form I-9: hard-fail (legal I-9 requirement, same as E-Verify)
-        logger.info("Selecting Form I-9: Yes, electronically")
-        # SEI selection just above can reset the I-9 default — wait for
-        # ADP to settle before interacting with the I-9 radio.
-        await page.wait_for_timeout(1000)
-        try:
-            radios = page.locator(FORM_I9_ELECTRONIC)
-            await radios.first.wait_for(state="visible", timeout=20000)
-            count = await radios.count()
-            logger.info(f"FORM I-9 DIAGNOSTIC count={count}")
-
-            diag_entries = []
-            for i in range(count):
-                try:
-                    entry = await radios.nth(i).evaluate("""(el) => {
-                        const ancestors = [];
-                        let p = el.parentElement;
-                        for (let d = 0; d < 6 && p; d++) {
-                            ancestors.push({
-                                depth: d,
-                                tag: p.tagName,
-                                id: p.id || '',
-                                cls: (p.className.toString?.() || '').slice(0, 80),
-                                text: (p.textContent || '').trim().slice(0, 150)
-                            });
-                            p = p.parentElement;
-                        }
-                        const r = el.getBoundingClientRect();
-                        return {
-                            aria_checked: el.getAttribute('aria-checked'),
-                            aria_label: el.getAttribute('aria-label') || '',
-                            name_attr: el.getAttribute('name') || '',
-                            rect: Math.round(r.left) + ',' + Math.round(r.top) + ' ' +
-                                  Math.round(r.width) + 'x' + Math.round(r.height),
-                            ancestors: ancestors
-                        };
-                    }""")
-                    diag_entries.append({"index": i, **entry})
-                except Exception as e:
-                    diag_entries.append({"index": i, "error": str(e)})
-
-            for e in diag_entries:
-                logger.info(f"FORM I-9 RADIO {e.get('index')}: {e}")
-
-            raise FormSubmissionError(
-                f"DIAGNOSTIC: Found {count} value='E' radios — see "
-                f"FORM I-9 RADIO log lines for ancestor info."
-            )
-        except FormSubmissionError:
-            raise
-        except Exception as e:
-            raise FormSubmissionError(
-                f"Form I-9 radio selection failed: {e}"
-            ) from e
+        # Form I-9 selection deferred — needs proper scoped selector.
+        # ADP auto-selects "Yes, electronically" by default; if SEI
+        # selection above clears it, the modal Save will fail. This is
+        # a known issue tracked separately.
+        logger.info("Skipping explicit Form I-9 selection (deferred fix)")
 
         # Save modal
         logger.info("Saving 'Ask the New Hire' modal")

@@ -62,10 +62,13 @@ SAVE_MANAGER_BUTTON = '#populateReportToValue_Id'
 # E-Verify work location
 E_VERIFY_LOCATION_SELECT = '#eVerifyLocationSelectBox'
 
-# Form I-9 indicator (electronically). Unscoped because #ENHAskNewhire
-# is the modal trigger button, not the modal pane. value="E" is
-# currently unique to this radio within the Ask the New Hire modal.
-FORM_I9_ELECTRONIC = 'sdf-radio-button[value="E"]'
+# Form I-9 indicator (electronically) — wrapper element with a stable,
+# human-readable id. CRITICAL: the id contains an en-dash (U+2013, written
+# as \u2013), NOT a regular hyphen (U+002D). They look nearly identical but
+# are different Unicode characters. The \u2013 escape is used here to make
+# this trap explicit and grep-safe. Do NOT replace with a literal hyphen —
+# selector will silently fail. The "I-9" itself uses regular hyphens.
+FORM_I9_ELECTRONIC = 'wfn-radio-button[id="Form I-9 question \u2013 electronic"]'
 
 # Self Employment Individual (SEI)
 SEI_SELECT = '#selfEmpIndList_Id'

@@ -560,6 +560,22 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
             logger.warning(warn_msg)
             warnings.append(warn_msg)
 
+        # Form I-9 selection: "Yes, electronically" (legal requirement, hard-fail).
+        # Must occur AFTER SEI — ADP clears any default I-9 selection once SEI is
+        # filled, leaving the field blank. ADP locks this field after the modal
+        # saves (per ADP's "won't be able to change your selections for SEI or the
+        # Form I-9 question" warning), so getting it wrong is a compliance
+        # violation that cannot be corrected post-submit.
+        logger.info("Selecting Form I-9: Yes, electronically")
+        try:
+            await page.wait_for_selector(FORM_I9_ELECTRONIC, timeout=20000)
+            await page.click(FORM_I9_ELECTRONIC)
+        except Exception as e:
+            raise FormSubmissionError(
+                f"Form I-9 selection failed for "
+                f"{hire.first_name} {hire.last_name}: expected 'Yes, electronically'"
+            ) from e
+
         # E-Verify location is a legal I-9 requirement — hard-fail on mismatch
         display_text = get_everify_display_text(hire.store_number)
         logger.info(f"Filling E-Verify location: {display_text}")
@@ -577,11 +593,6 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
                 f"{hire.store_number}: expected '{display_text}'"
             ) from e
 
-        # Form I-9 selection deferred — needs proper scoped selector.
-        # ADP auto-selects "Yes, electronically" by default; if SEI
-        # selection above clears it, the modal Save will fail. This is
-        # a known issue tracked separately.
-        logger.info("Skipping explicit Form I-9 selection (deferred fix)")
 
         # Save modal
         logger.info("Saving 'Ask the New Hire' modal")

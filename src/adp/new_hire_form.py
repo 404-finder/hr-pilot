@@ -689,9 +689,12 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         # ====================================================================
         logger.info("Filling payroll section")
 
-        # Compensation Type (always Hourly)
+        # Compensation Type (always Hourly). Search code MUST be "Hourly"
+        # not "Hour" — fill_mdf_dropdown anchors with `^\s*{code}\b` and
+        # the word boundary fails mid-word (no boundary between "Hour"
+        # and "ly"). Using the full word lets `\b` anchor at end-of-string.
         logger.info("Filling Compensation Type with value: Hourly")
-        await fill_mdf_dropdown(page, COMPENSATION_TYPE_SELECT, "Hour")
+        await fill_mdf_dropdown(page, COMPENSATION_TYPE_SELECT, "Hourly")
 
         # Regular Pay Rate — use click+triple-click+type to trigger React onChange
         logger.info(f"Filling Regular Pay Rate with value: {hire.pay_rate}")

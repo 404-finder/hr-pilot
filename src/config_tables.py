@@ -54,17 +54,17 @@ EVERIFY_LOCATIONS: dict[str, str] = {
 }
 
 LOCATION_MANAGERS = {
-    "39101": {"name": "Chandler Wilder", "search": "Wilder"},
-    "39102": {"name": "Brandon Hudgens", "search": "Hudgens"},
-    "39103": {"name": "Josue Gonzalez", "search": "Gonzalez"},
-    "39104": {"name": "Mary De Los Rios", "search": "De Los Rios"},
-    "33561": {"name": "Caleb Urrutia", "search": "Urrutia"},
-    "33562": {"name": "Caleb Urrutia", "search": "Urrutia"},
-    "33563": {"name": "Caleb Urrutia", "search": "Urrutia"},
-    "33564": {"name": "Caleb Urrutia", "search": "Urrutia"},
-    "33565": {"name": "Caleb Urrutia", "search": "Urrutia"},
-    "33566": {"name": "Caleb Urrutia", "search": "Urrutia"},
-    "33567": {"name": "Caleb Urrutia", "search": "Urrutia"},
+    "39101": {"name": "Wilder Chandler",   "search": "Chandler, Wilder"},
+    "39102": {"name": "Brandon Hudgens",   "search": "Hudgens, Brandon"},
+    "39103": {"name": "Josue Gonzalez",    "search": "Gonzalez, Josue"},
+    "39104": {"name": "Mary De Los Rios",  "search": "De Los Rios, Mary"},
+    "33561": {"name": "Caleb Urrutia",     "search": "Urrutia, Caleb"},
+    "33562": {"name": "Caleb Urrutia",     "search": "Urrutia, Caleb"},
+    "33563": {"name": "Caleb Urrutia",     "search": "Urrutia, Caleb"},
+    "33564": {"name": "Caleb Urrutia",     "search": "Urrutia, Caleb"},
+    "33565": {"name": "Caleb Urrutia",     "search": "Urrutia, Caleb"},
+    "33566": {"name": "Caleb Urrutia",     "search": "Urrutia, Caleb"},
+    "33567": {"name": "Caleb Urrutia",     "search": "Urrutia, Caleb"},
 }
 
 JOB_TITLES = {
@@ -249,13 +249,13 @@ def get_manager(store_number: str) -> dict:
         store_number: Full store number (e.g., "39104").
 
     Returns:
-        Dict with "name" (full name) and "search" (last name for ADP search).
+        Dict with "name" (display name) and "search" (Last, First for ADP search).
 
     Raises:
         KeyError: If store number not found in LOCATION_MANAGERS.
 
     Examples:
         >>> get_manager("39104")
-        {"name": "Mary De Los Rios", "search": "De Los Rios"}
+        {"name": "Mary De Los Rios", "search": "De Los Rios, Mary"}
     """
     return LOCATION_MANAGERS[store_number]

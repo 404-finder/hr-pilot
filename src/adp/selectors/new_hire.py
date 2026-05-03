@@ -62,13 +62,23 @@ SAVE_MANAGER_BUTTON = '#populateReportToValue_Id'
 # E-Verify work location
 E_VERIFY_LOCATION_SELECT = '#eVerifyLocationSelectBox'
 
-# Form I-9 indicator (electronically) — wrapper element with a stable,
-# human-readable id. CRITICAL: the id contains an en-dash (U+2013, written
-# as \u2013), NOT a regular hyphen (U+002D). They look nearly identical but
-# are different Unicode characters. The \u2013 escape is used here to make
-# this trap explicit and grep-safe. Do NOT replace with a literal hyphen —
-# selector will silently fail. The "I-9" itself uses regular hyphens.
-FORM_I9_ELECTRONIC = 'wfn-radio-button[id="Form I-9 question \u2013 electronic"]'
+# Form I-9 indicator (electronically). Two issues this selector handles:
+#
+# 1. EN-DASH TRAP. The id contains an en-dash (U+2013, written as \u2013),
+#    NOT a regular hyphen (U+002D). They look nearly identical but are
+#    different Unicode characters. The \u2013 escape is used here to make
+#    this trap explicit and grep-safe. Do NOT replace with a literal
+#    hyphen — selector will silently fail. The "I-9" itself uses regular
+#    hyphens (only the dash between "question" and "electronic" is en).
+#
+# 2. DUPLICATE ID IN DOM. ADP renders this same id in two places:
+#    a) Inside #showPreHireModal_Id ("Ask the New Hire" modal — target)
+#    b) Inside #Employment (a read-only/disabled mirror that ADP populates
+#       from the modal selection — NOT clickable)
+#    Without the #showPreHireModal_Id prefix, Playwright strict mode
+#    raises "resolved to 2 elements" and the click fails. The modal is
+#    the source of truth; the Employment copy is just a display.
+FORM_I9_ELECTRONIC = '#showPreHireModal_Id wfn-radio-button[id="Form I-9 question \u2013 electronic"]'
 
 # Self Employment Individual (SEI)
 SEI_SELECT = '#selfEmpIndList_Id'

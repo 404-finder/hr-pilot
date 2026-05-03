@@ -43,6 +43,30 @@
 - **Fix**: `https://workforcenow.adp.com/**` — matches only actual WFN domain
 - Bug was masked before MFA handling was added
 
+### Three Form-Fill Fixes (Fixed 2026-05-03)
+
+These three issues blocked the new hire pipeline end-to-end. All three were diagnosed and fixed in the same session.
+
+**Form I-9 selector (three layers of quirks).**
+- The `wfn-radio-button` id `Form I-9 question – electronic` contains an en-dash (U+2013, written as `\u2013`), NOT a regular hyphen. Visually identical, semantically different. Use the `\u2013` escape in source for grep-safety.
+- ADP renders the same id in two places: inside `#showPreHireModal_Id` (the modal — the target) and inside `#Employment` (a read-only mirror populated from the modal). Without modal scoping, Playwright strict mode raises "resolved to 2 elements".
+- The `wfn-radio-button` wrapper is inert to programmatic clicks — both `page.click()` and `locator.evaluate("el => el.click()")` fire without error but the radio state never updates. Target the inner `sdf-radio-button[value="E"]` instead. SDF radios are clickable (same component family as manager picker and measurement-periods radios).
+- **Final selector**: `#showPreHireModal_Id wfn-radio-button[id="Form I-9 question \u2013 electronic"] sdf-radio-button[value="E"]`
+- I-9 must be selected AFTER SEI — ADP clears any default I-9 selection once SEI is filled, leaving the field blank. Legal compliance — hard-fail on click failure.
+
+**Compensation Type regex anchor (single-word options).**
+- `fill_mdf_dropdown()` builds an anchored regex `^\s*{search_code}\b` (case-insensitive) to disambiguate prefix matches.
+- The `\b` word boundary fails when the search code is a prefix of a longer single word. `^\s*Hour\b` does NOT match `"Hourly"` because the character after `Hour` is `l` (a word character — no boundary).
+- Compensation Type is the only dropdown in the form where option text is a single word. All other dropdowns follow the `CODE - Description` format where `\b` anchors against the trailing space/hyphen and works correctly.
+- **Fix**: pass the full word `"Hourly"` as the search code, not `"Hour"`.
+
+**Manager search disambiguation (Last, First format).**
+- ADP's Reports To search returns ALL matches for the search term, not just direct reports. Searching by bare last name returns every person with that name in the system.
+- When two managers share a last name (Gonzalez: Crystal and Josue), the search returns both and the form-fill code clicks the first radio non-deterministically. Wrong-manager assignment is silent.
+- ADP accepts `"Last, First"` (comma + single space) format and narrows to one person. Verified manually for both Gonzalezes individually and for Wilder Chandler.
+- **Fix**: store the search term in `LOCATION_MANAGERS` as `"Last, First"` per manager. The fallback to `manager["name"]` (full name) stays in place as a safety net.
+- **Side discovery**: the previous `LOCATION_MANAGERS` had Wilder Chandler's first and last names backwards. He's Wilder (first) Chandler (last), not Chandler Wilder. The old `"search": "Wilder"` worked only because there's only one Wilder in the system.
+
 ---
 
 ## ADP Selector Patterns
@@ -64,8 +88,9 @@
 - Use `click_visible_next_button(page)` — JS `offsetParent !== null` filter
 
 ### Manager Search (Reports To)
-- Search does NOT work with full names — last name only
-- `LOCATION_MANAGERS` stores `{"name": "Full Name", "search": "LastName"}`
+- Search does NOT work with full name as a single token (e.g., "Mary De Los Rios" returns no results)
+- `LOCATION_MANAGERS` stores `{"name": "First Last", "search": "Last, First"}` — comma + single space disambiguates duplicate last names
+- Form-fill code tries `manager["search"]` first, falls back to `manager["name"]` if "There are no entries"
 - Check for "There are no entries" before radio button click
 - Radio: `sdf-radio-button[role="radio"][aria-checked="false"]` → click first, verify `aria-checked="true"`
 - On failure: `Escape` to dismiss slider, append to `warnings`, continue
@@ -195,7 +220,7 @@
 | Dropdown not selecting | `fill_mdf_dropdown()`, no trailing space |
 | Pay rate not filling | `click()` + `Ctrl+A` + `type()` + `Tab` |
 | "Next" button does nothing | `click_visible_next_button()` |
-| Manager search no results | Last name only (`manager["search"]`) |
+| Manager search no results | `manager["search"]` is `"Last, First"`; falls back to `manager["name"]` if no entries |
 | Reports To slider timeout | 3s wait after clicking button |
 | Onboarding pencil icon wrong | JS `isVisible()` filter for y-position |
 | Onboarding dropdown fails | Custom mousedown sequence, not `fill_mdf_dropdown()` |
@@ -207,6 +232,10 @@
 | Screenshot times out | `full_page=False` + 60s timeout |
 | Pendo blocks clicks | `dismiss_pendo()` after login and before Process button |
 | Navigation intermittent | Dashboard load variable; re-run |
+| I-9 click silently fails, modal save rejects | Target inner `sdf-radio-button[value="E"]` scoped to `#showPreHireModal_Id`, not the `wfn-radio-button` wrapper |
+| Single-word dropdown option times out (e.g., "Hourly") | Pass full word as search code; `\b` anchor fails mid-word |
+| Manager search returns wrong person when last names collide | Store search as `"Last, First"` in `LOCATION_MANAGERS` |
+| Code change deployed but not picked up by running bot | `git pull` does not restart the service. Run `sudo systemctl restart hr-pilot`. Verify with `systemctl status hr-pilot \| head -3` (Active: since timestamp must be after the deploy) |
 
 ---
 

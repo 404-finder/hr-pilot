@@ -566,10 +566,17 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         # saves (per ADP's "won't be able to change your selections for SEI or the
         # Form I-9 question" warning), so getting it wrong is a compliance
         # violation that cannot be corrected post-submit.
+        # NOTE: page.click() on the wfn-radio-button wrapper fires the event but
+        # the custom element doesn't propagate it to the inner sdf-radio-button —
+        # Playwright reports success but the radio stays unselected, the modal
+        # save validation fails, and the next-section click times out.
+        # Use locator.evaluate("el => el.click()") to fire the click in the
+        # element's own JS context. Same pattern used for Assign/Back buttons
+        # in the onboarding sub-flow and for the Use for Notification checkbox.
         logger.info("Selecting Form I-9: Yes, electronically")
         try:
             await page.wait_for_selector(FORM_I9_ELECTRONIC, timeout=20000)
-            await page.click(FORM_I9_ELECTRONIC)
+            await page.locator(FORM_I9_ELECTRONIC).evaluate("el => el.click()")
         except Exception as e:
             raise FormSubmissionError(
                 f"Form I-9 selection failed for "

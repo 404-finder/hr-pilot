@@ -27,14 +27,14 @@ STORE_LOCATIONS = {
     "39102": "Interstate 35",
     "39103": "South Valley Mills",
     "39104": "North Valley Mills",
-    # Colorado Stores 
-    "33561":"Austin Bluffs Parkway",
-    "33562":"Galley Road",
-    "33563":"Constitution Avenue",
-    "33564":"Cheyenne Meadows Road",
-    "33565":"Mesa Ridge Parkway",
-    "33566":"South Academy Boulevard",
-    "33567":"Stetson Hills Boulevard",
+    # Colorado Stores
+    "33561": "Austin Bluffs Parkway",
+    "33562": "Galley Road",
+    "33563": "Constitution Avenue",
+    "33564": "Cheyenne Meadows Road",
+    "33565": "Mesa Ridge Parkway",
+    "33566": "South Academy Boulevard",
+    "33567": "Stetson Hills Boulevard",
 }
 
 EVERIFY_LOCATIONS: dict[str, str] = {
@@ -54,27 +54,27 @@ EVERIFY_LOCATIONS: dict[str, str] = {
 }
 
 LOCATION_MANAGERS = {
-    "39101": {"name": "Wilder Chandler",   "search": "Chandler, Wilder"},
-    "39102": {"name": "Brandon Hudgens",   "search": "Hudgens, Brandon"},
-    "39103": {"name": "Josue Gonzalez",    "search": "Gonzalez, Josue"},
-    "39104": {"name": "Mary De Los Rios",  "search": "De Los Rios, Mary"},
-    "33561": {"name": "Caleb Urrutia",     "search": "Urrutia, Caleb"},
-    "33562": {"name": "Caleb Urrutia",     "search": "Urrutia, Caleb"},
-    "33563": {"name": "Caleb Urrutia",     "search": "Urrutia, Caleb"},
-    "33564": {"name": "Caleb Urrutia",     "search": "Urrutia, Caleb"},
-    "33565": {"name": "Caleb Urrutia",     "search": "Urrutia, Caleb"},
-    "33566": {"name": "Caleb Urrutia",     "search": "Urrutia, Caleb"},
-    "33567": {"name": "Caleb Urrutia",     "search": "Urrutia, Caleb"},
+    "39101": {"name": "Wilder Chandler", "search": "Chandler, Wilder"},
+    "39102": {"name": "Brandon Hudgens", "search": "Hudgens, Brandon"},
+    "39103": {"name": "Josue Gonzalez", "search": "Gonzalez, Josue"},
+    "39104": {"name": "Wilder Chandler", "search": "Chandler, Wilder"},
+    "33561": {"name": "Caleb Urrutia", "search": "Urrutia, Caleb"},
+    "33562": {"name": "Caleb Urrutia", "search": "Urrutia, Caleb"},
+    "33563": {"name": "Caleb Urrutia", "search": "Urrutia, Caleb"},
+    "33564": {"name": "Caleb Urrutia", "search": "Urrutia, Caleb"},
+    "33565": {"name": "Caleb Urrutia", "search": "Urrutia, Caleb"},
+    "33566": {"name": "Caleb Urrutia", "search": "Urrutia, Caleb"},
+    "33567": {"name": "Caleb Urrutia", "search": "Urrutia, Caleb"},
 }
 
 JOB_TITLES = {
     "assist manager": "ASSTMNGR - ASSISTANT MANAGER",
-    "co-manager":     "CO-MGR - CO-MANAGER",
-    "dist manager":   "DISTMNGR - DISTRICT MANAGER",
-    "gen manager":    "GNRSMNGR - GENERAL MANAGER",
-    "manager":        "MANAGER - Manager Trainee",
-    "sal manager":    "SALARYMG - SALARY MANAGER",
-    "crew":           "TEAMMEMB - TEAM MEMBER",
+    "co-manager": "CO-MGR - CO-MANAGER",
+    "dist manager": "DISTMNGR - DISTRICT MANAGER",
+    "gen manager": "GNRSMNGR - GENERAL MANAGER",
+    "manager": "MANAGER - Manager Trainee",
+    "sal manager": "SALARYMG - SALARY MANAGER",
+    "crew": "TEAMMEMB - TEAM MEMBER",
 }
 
 WORK_SCHEDULE = {
@@ -84,7 +84,7 @@ WORK_SCHEDULE = {
 
 # Store prefix config - expandable for future states
 STORE_CONFIG = {
-    "3910": { # Texas Stores
+    "3910": {  # Texas Stores
         "company_code": "ZKT - LC Texas LLC",
         "worked_in_state": "TX - Texas",
         "sui_sdi_tax_code": "TX -53 -Texas",
@@ -92,14 +92,14 @@ STORE_CONFIG = {
         "benefits_eligibility": "BE - Benefit Eligible Team Members",
         "measurement_periods": True,
     },
-    "3356": { # Colorado stores
-        "company_code":  "FND - LC CO LLC",
+    "3356": {  # Colorado stores
+        "company_code": "FND - LC CO LLC",
         "worked_in_state": "CO - Colorado",
         "sui_sdi_tax_code": "CO -15 - Colorado",
         "onboarding_experience": "Colorado Experience LC CO",
         "benefits_eligibility": "BE - Benefit Eligible Team Members",
         "measurement_periods": True,
-    }
+    },
 }
 
 # Job title categories for department suffix logic
@@ -236,9 +236,7 @@ def get_everify_display_text(store_number: str) -> str:
     Raises KeyError if store_number is not configured.
     """
     if store_number not in EVERIFY_LOCATIONS:
-        raise KeyError(
-            f"No E-Verify display text configured for store {store_number}"
-        )
+        raise KeyError(f"No E-Verify display text configured for store {store_number}")
     return EVERIFY_LOCATIONS[store_number]
 
 

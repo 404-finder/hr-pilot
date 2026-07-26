@@ -22,13 +22,16 @@ from src.utils.screenshots import capture_screenshot
 logger = setup_logger(__name__)
 
 
-async def send_registration_code(page: Page, associate_id: str, email: str) -> None:
+async def send_registration_code(page: Page, associate_id: str, email: str) -> str:
     """Send personal registration code to new hire's email.
 
     Args:
         page: Authenticated ADP page (should be on In-Progress Hires or dashboard).
         associate_id: The Associate ID captured from new hire form.
         email: New hire's personal email address.
+
+    Returns:
+        Path to a screenshot of the confirmation page.
 
     Raises:
         FormSubmissionError: If registration code delivery fails.
@@ -83,10 +86,23 @@ async def send_registration_code(page: Page, associate_id: str, email: str) -> N
                 return false;
             }""")
 
-        # Wait for success banner
-        await active_page.wait_for_timeout(3000)
+        # Wait for success banner (soft — fall back to static wait)
+        try:
+            await active_page.wait_for_selector(
+                'text=personal registration code has been sent',
+                timeout=10000,
+            )
+        except Exception:
+            logger.warning("PRC success banner not detected — proceeding anyway")
+            await active_page.wait_for_timeout(3000)
 
+        # Capture confirmation screenshot from the ACTIVE page (Security
+        # Management opens a new tab — `page` is the old WFN tab)
+        screenshot_path = await capture_screenshot(
+            active_page, f"prc_sent_{associate_id}"
+        )
         logger.info(f"Successfully sent registration code to {email}")
+        return screenshot_path
 
     except Exception as e:
         logger.error(f"Failed to send registration code: {e}")

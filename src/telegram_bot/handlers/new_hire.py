@@ -264,7 +264,7 @@ async def handle_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             return
 
         logger.info(f"Confirming submission for: {hire.first_name} {hire.last_name}")
-        await update.message.reply_text(f"Submitting form for {hire.first_name} {hire.last_name}...")
+        await update.message.reply_text(f"Submitting form for {hire.first_name} {hire.last_name} ({associate_id})...")
 
         # --- Step 1: Save and Exit ---
         try:
@@ -385,10 +385,11 @@ async def handle_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         # --- Step 2: Registration Code ---
         try:
             logger.info(f"Sending registration code for Associate ID: {associate_id}")
-            await send_registration_code(page, associate_id, hire.email)
-
-            await update.message.reply_text(
-                f"[OK] Registration code sent to {hire.email}."
+            prc_screenshot = await send_registration_code(page, associate_id, hire.email)
+            await send_and_delete_screenshot(
+                update.message,
+                prc_screenshot,
+                f"[OK] Registration code sent to {hire.email}",
             )
             logger.info(f"Registration code sent for {hire.first_name} {hire.last_name}")
 

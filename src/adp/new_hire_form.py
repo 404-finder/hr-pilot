@@ -43,7 +43,8 @@ from src.adp.selectors.new_hire import (
     JOB_TITLE_SELECT,
     LAST_NAME_INPUT,
     MANAGER_NAME_SEARCH_INPUT,
-    MANAGER_RADIO_BUTTON,
+    MANAGER_RADIO_CHECKED,
+    MANAGER_RADIO_UNCHECKED,
     MANAGER_SEARCH_BUTTON,
     NEXT_BUTTON_PRIMARY,
     ONBOARDING_TEMPLATE_SELECT,
@@ -497,42 +498,17 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
 
             # Wait for results to render
             await page.wait_for_selector(
-                'sdf-radio-button[role="radio"][aria-checked="false"]', timeout=20000
+                MANAGER_RADIO_UNCHECKED, timeout=20000
             )
-
-            # --- DIAGNOSTIC: inspect DOM ancestry of each radio button ---
-            diag = await page.evaluate("""() => {
-                const radios = document.querySelectorAll('sdf-radio-button[role="radio"]');
-                const out = [];
-                radios.forEach((r, i) => {
-                    const ancestors = [];
-                    let p = r.parentElement;
-                    for (let d = 0; d < 6 && p; d++) {
-                        ancestors.push({
-                            depth: d,
-                            tag: p.tagName,
-                            id: p.id || '',
-                            cls: (p.className.toString?.() || '').slice(0, 80),
-                            text: (p.textContent || '').trim().slice(0, 120)
-                        });
-                        p = p.parentElement;
-                    }
-                    out.push({ index: i, ancestors: ancestors });
-                });
-                return out;
-            }""")
-            logger.info(f"MANAGER PICKER DIAGNOSTIC: {diag}")
 
             # Click the first unchecked radio button in the results
             logger.info("Clicking first radio button in results")
-            await page.click('sdf-radio-button[role="radio"][aria-checked="false"]')
+            await page.click(MANAGER_RADIO_UNCHECKED)
 
             # Verify selection took effect
             await page.wait_for_timeout(500)
-            checked = await page.query_selector(
-                'sdf-radio-button[role="radio"][aria-checked="true"]'
-            )
-            if checked:
+            checked_count = await page.locator(MANAGER_RADIO_CHECKED).count()
+            if checked_count > 0:
                 manager_selected = True
                 logger.info(f"Manager radio button confirmed selected for '{search_term}'")
                 break

@@ -56,7 +56,13 @@ WORKED_IN_STATE_SELECT = '#workedInState'
 REPORTS_TO_BUTTON = '#openReportsToCustomSlider_Id'
 MANAGER_NAME_SEARCH_INPUT = '#onReportsToSearch'
 MANAGER_SEARCH_BUTTON = '#reportsToSearch_Id'
-MANAGER_RADIO_BUTTON = 'sdf-radio-button[aria-checked="true"]'
+# Manager result radios. MUST be :visible-scoped: the Reports To slider
+# (and page) contains hidden sdf-radio-buttons (e.g. a value="position"
+# search-mode toggle) that match page-wide selectors. wait_for_selector
+# and page.click() act on the FIRST DOM match, which is hidden — causing
+# timeouts on wait and false positives on aria-checked="true" checks.
+MANAGER_RADIO_UNCHECKED = 'sdf-radio-button[role="radio"][aria-checked="false"]:visible'
+MANAGER_RADIO_CHECKED = 'sdf-radio-button[role="radio"][aria-checked="true"]:visible'
 SAVE_MANAGER_BUTTON = '#populateReportToValue_Id'
 
 # E-Verify work location

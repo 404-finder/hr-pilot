@@ -344,7 +344,7 @@ async def handle_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                         const btn = document.querySelector('#ENHSaveAndExit');
                         return !btn || btn.offsetParent === null;
                     }""",
-                    timeout=15000
+                    timeout=20000
                 )
                 logger.info("Save confirmed — form navigated away")
             except Exception:
@@ -360,7 +360,7 @@ async def handle_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 if still_visible:
                     raise Exception(
                         "Save and Exit failed — form is still open. "
-                        "Check for ADP validation errors."
+                        f"Check for ADP validation errors. URL: {page.url}"
                     )
                 logger.info("Save confirmed on retry")
 
@@ -379,6 +379,21 @@ async def handle_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
         except Exception as e:
             logger.error(f"Error submitting form: {e}", exc_info=True)
+            try:
+                # Playwright locators pierce shadow DOM (sdf-* components); querySelectorAll does not
+                texts = await page.locator(
+                    "sdf-alert, sdf-dialog, sdf-notification, "
+                    "[role='alert'], [role='alertdialog']"
+                ).all_inner_texts()
+                logger.error(f"Save-failure dialog text: {[t[:300] for t in texts if t.strip()]}")
+                error_shot = await capture_screenshot(
+                    page, f"new_hire_save_error_{hire.first_name}_{hire.last_name}".replace(" ", "_")
+                )
+                await send_and_delete_screenshot(
+                    update.message, error_shot, "[FAIL] Save and Exit — debug screenshot"
+                )
+            except Exception as diag_err:
+                logger.warning(f"Save-failure diagnostics failed: {diag_err}")
             await update.message.reply_text(f"[FAIL] Error submitting form:\n{str(e)}")
             return
 

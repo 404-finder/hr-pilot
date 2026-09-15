@@ -581,6 +581,20 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         logger.info("Saving 'Ask the New Hire' modal")
         await page.wait_for_selector(SAVE_MODAL_BUTTON, timeout=20000)
         await page.click(SAVE_MODAL_BUTTON)
+        # Give ADP time to render the modal-save validation error
+        await page.wait_for_timeout(3000)
+
+        # ADP rejects the modal silently when the personal email already exists on
+        # another associate. The error renders inside sdf-* shadow-DOM components,
+        # so use a Playwright locator (pierces shadow roots), not querySelectorAll.
+        dup_email = page.get_by_text("unique email address")
+        if await dup_email.count() > 0 and await dup_email.first.is_visible():
+            logger.error(f"Duplicate email rejected by ADP for {hire.first_name} {hire.last_name}")
+            raise FormSubmissionError(
+                f"ADP rejected the email '{hire.email}' — it already exists on another "
+                "associate. Check ADP People for an existing/former employee (possible "
+                "rehire) or use a different personal email."
+            )
 
         # ====================================================================
         # PROCEED TO EMPLOYMENT SECTION

@@ -79,8 +79,7 @@ SCREENSHOT_DIR=screenshots
 | Command | Description |
 |---------|-------------|
 | `/newhire` | Add a new employee to ADP |
-| `/confirm` | Submit the pending new hire after dry-run review |
-| `/cancel` | Cancel the current operation |
+| `/cancel` | Cancel while the bot is waiting for an MFA code |
 | `/start` | Welcome message |
 | `/help` | Show usage instructions and field options |
 
@@ -114,9 +113,12 @@ All field names and values are case-insensitive.
 
 1. Send `/newhire` with employee details
 2. Bot validates input and logs into ADP under your credentials
-3. Form is filled in dry-run mode — a screenshot is sent for review
-4. Reply `/confirm` to submit and send the Personal Registration Code (PRC)
-5. Or `/cancel` to discard — auto-cancels after 5 minutes
+3. If ADP asks for MFA, reply with the SMS code (`/cancel` to abort; auto-cancels after 3 minutes)
+4. Form is filled and saved automatically, then the Personal Registration Code (PRC) is sent
+5. Bot replies with the filled-form, saved, and PRC screenshots plus a summary — warnings
+   (e.g. manager not found) are listed first so you know what to check in ADP
+6. If the form saves but the PRC fails, the summary says `[PARTIAL]` with the Associate ID
+   so you can send the PRC manually
 
 ## Running Tests
 

@@ -1,17 +1,18 @@
 """
 New hire command handler.
 
-Handles /newhire command with dry-run preview and /confirm to submit.
+Handles /newhire: fills the form, saves it, sends the PRC, and reports back.
 """
 
-from telegram import Update
+from typing import Optional
+
+from telegram import Message, Update
 from telegram.ext import ContextTypes
 
 from src.adp.auth import login_to_adp
 from src.adp.navigation import navigate_to_new_hire
 from src.adp.new_hire_form import fill_new_hire_form
 from src.adp.registration_code import send_registration_code
-from src.adp.selectors.new_hire import SAVE_AND_EXIT_BUTTON
 from src.config import settings
 from src.telegram_bot.parsers import parse_new_hire, parse_new_hire_raw
 from src.telegram_bot.watchdog import start_watchdog, stop_watchdog
@@ -22,6 +23,95 @@ from src.validators import validate_new_hire_input
 logger = setup_logger(__name__)
 
 
+async def _cleanup_session(context: ContextTypes.DEFAULT_TYPE, browser, pw) -> None:
+    """Stop the watchdog, close the browser, stop Playwright, and clear session state.
+
+    Safe to call with None values and more than once.
+
+    Args:
+        context: Telegram context object.
+        browser: Playwright browser (or None).
+        pw: Playwright instance (or None).
+    """
+    stop_watchdog(context)
+    if browser:
+        try:
+            await browser.close()
+            logger.info("Browser closed")
+        except Exception as close_error:
+            logger.error(f"Error closing browser: {close_error}")
+    if pw:
+        try:
+            await pw.stop()
+            logger.info("Playwright stopped")
+        except Exception as pw_error:
+            logger.error(f"Error stopping Playwright: {pw_error}")
+
+    context.user_data.pop("pw", None)
+    context.user_data.pop("browser", None)
+    context.user_data.pop("page", None)
+    context.user_data.pop("hire", None)
+    context.user_data.pop("awaiting_mfa_code", None)
+
+
+async def _send_screenshot(message: Message, path: Optional[str], caption: str) -> None:
+    """Send a screenshot if one exists, logging (not raising) on failure.
+
+    Args:
+        message: Telegram Message to reply on.
+        path: Path to the screenshot file, or None to skip.
+        caption: Caption for the photo message.
+    """
+    if not path:
+        return
+    try:
+        await send_and_delete_screenshot(message, path, caption)
+    except Exception as screenshot_error:
+        logger.error(f"Failed to send screenshot '{caption}': {screenshot_error}")
+
+
+def _format_summary(
+    hire,
+    associate_id: str,
+    warnings: list[str],
+    prc_error: Optional[Exception] = None,
+) -> str:
+    """Build the final status message, with warnings listed first.
+
+    Args:
+        hire: Validated NewHire model instance.
+        associate_id: Associate ID captured from the form.
+        warnings: Non-fatal issues raised during form fill.
+        prc_error: Exception from the PRC step, or None on success.
+
+    Returns:
+        Formatted Telegram message text.
+    """
+    parts = []
+    if warnings:
+        parts.append(
+            "⚠️ CHECK DURING ADP REVIEW:\n" + "\n".join(f"  - {w}" for w in warnings)
+        )
+
+    if prc_error is None:
+        parts.append(
+            f"[OK] New hire saved: {hire.first_name} {hire.last_name}\n"
+            f"Associate ID: {associate_id}\n"
+            f"PRC sent to: {hire.email}"
+        )
+    else:
+        parts.append(
+            f"[PARTIAL] Form SAVED for {hire.first_name} {hire.last_name}, "
+            f"but PRC was NOT sent.\n"
+            f"Associate ID: {associate_id}\n"
+            f"Send the PRC manually: ADP → Security Management → "
+            f"Personal Registration Codes.\n"
+            f"Error: {prc_error}"
+        )
+
+    return "\n\n".join(parts)
+
+
 async def _run_new_hire_flow(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -30,73 +120,85 @@ async def _run_new_hire_flow(
     page,
     hire,
 ) -> None:
-    """Navigate ADP and fill the new hire form in dry-run mode, then prompt for confirmation.
+    """Navigate ADP, fill and save the new hire form, send the PRC, and report.
 
     Shared by both the non-MFA path (called directly from handle_new_hire)
     and the MFA path (called from handle_mfa_code after code verification).
+    Never raises; always cleans up the browser session before returning.
 
     Args:
         update: Telegram update object.
         context: Telegram context object.
-        pw: Playwright instance (stored for cleanup by /confirm or /cancel).
+        pw: Playwright instance.
         browser: Authenticated Playwright browser.
         page: Authenticated ADP page.
         hire: Validated NewHire model instance.
     """
-    # Navigate to new hire form
-    logger.info("Navigating to new hire form")
-    await navigate_to_new_hire(page)
+    try:
+        # --- Step 1: Fill + Save & Exit ---
+        try:
+            logger.info("Navigating to new hire form")
+            await navigate_to_new_hire(page)
 
-    # Fill new hire form in DRY RUN mode
-    logger.info("Filling new hire form (dry run mode)")
-    result = await fill_new_hire_form(page, hire, dry_run=True)
+            logger.info("Filling and saving new hire form")
+            result = await fill_new_hire_form(page, hire, dry_run=False)
+        except Exception as e:
+            logger.error(f"Error processing new hire: {e}", exc_info=True)
+            await update.message.reply_text(f"[FAIL] Error processing new hire:\n{str(e)}")
+            await _send_screenshot(
+                update.message, getattr(e, "screenshot_path", None), "Debug screenshot"
+            )
+            return
 
-    # Send screenshot to user for review
-    await send_and_delete_screenshot(
-        update.message,
-        result["screenshot_path"],
-        f"[OK] Form filled for {hire.first_name} {hire.last_name}",
-    )
+        associate_id = result["associate_id"]
+        warnings = result.get("warnings", [])
+        logger.info(f"Form saved for {hire.first_name} {hire.last_name} ({associate_id})")
 
-    # Surface any warnings (e.g. manager not found)
-    if result.get("warnings"):
-        warning_text = "[WARNING] The following issues occurred:\n" + "\n".join(
-            f"  - {w}" for w in result["warnings"]
+        await _send_screenshot(
+            update.message,
+            result.get("review_screenshot_path"),
+            f"Filled form (pre-save): {hire.first_name} {hire.last_name}",
         )
-        await update.message.reply_text(warning_text)
-
-    # Send confirmation prompt
-    await update.message.reply_text(
-        "Review the screenshot above.\n\n"
-        "Reply /confirm to submit or /cancel to discard."
-    )
-
-    # Store data in context for /confirm to use
-    context.user_data["pending_hire"] = True
-    context.user_data["pw"] = pw
-    context.user_data["browser"] = browser
-    context.user_data["page"] = page
-    context.user_data["hire"] = hire
-    context.user_data["associate_id"] = result["associate_id"]
-
-    # Schedule auto-cancel after 5 minutes
-    if context.job_queue:
-        context.job_queue.run_once(
-            auto_cancel_hire,
-            300,  # 5 minutes
-            chat_id=update.effective_chat.id,
-            user_id=update.effective_user.id,
-            data={"user_id": update.effective_user.id}
+        await _send_screenshot(
+            update.message,
+            result.get("screenshot_path"),
+            f"[OK] Saved: {hire.first_name} {hire.last_name} ({associate_id})",
         )
 
-    logger.info(f"Waiting for confirmation for: {hire.first_name} {hire.last_name}")
+        # --- Step 2: Registration Code ---
+        try:
+            logger.info(f"Sending registration code for Associate ID: {associate_id}")
+            prc_screenshot = await send_registration_code(page, associate_id, hire.email)
+
+        except Exception as e:
+            logger.warning(f"Registration code failed: {e}", exc_info=True)
+            await update.message.reply_text(
+                _format_summary(hire, associate_id, warnings, prc_error=e)
+            )
+            await _send_screenshot(
+                update.message, getattr(e, "screenshot_path", None), "PRC error screenshot"
+            )
+
+        else:
+            await _send_screenshot(
+                update.message, prc_screenshot, f"[OK] Registration code sent to {hire.email}"
+            )
+            await update.message.reply_text(_format_summary(hire, associate_id, warnings))
+            logger.info(f"New hire complete for {hire.first_name} {hire.last_name}")
+
+    except Exception as e:
+        # Telegram send failures etc. — never let them skip cleanup
+        logger.error(f"Unexpected error in new hire flow: {e}", exc_info=True)
+
+    finally:
+        await _cleanup_session(context, browser, pw)
 
 
 async def handle_new_hire(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /newhire command with dry-run preview.
+    """Handle /newhire command.
 
-    Parses the message, logs into ADP, fills the form in dry-run mode,
-    and waits for user confirmation before submitting.
+    Parses the message, logs into ADP, fills and saves the form,
+    sends the PRC, and reports the result.
 
     Args:
         update: Telegram update object.
@@ -179,271 +281,29 @@ async def handle_new_hire(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             logger.info("MFA required — waiting for user to supply code")
             return
 
-        # No MFA — proceed directly
+        # No MFA — proceed directly (flow handles its own errors and cleanup)
         await _run_new_hire_flow(update, context, pw, browser, page, hire)
 
     except ValueError as e:
-        stop_watchdog(context)
         # Parsing error
         error_message = f"[FAIL] Invalid message format:\n{str(e)}\n\nUse /help to see the expected format."
         await update.message.reply_text(error_message)
         logger.error(f"Parsing error: {e}")
-
-        # Close browser if opened
-        if browser:
-            try:
-                await browser.close()
-            except Exception:
-                pass
-        if pw:
-            try:
-                await pw.stop()
-                logger.info("Playwright stopped")
-            except Exception as pw_error:
-                logger.error(f"Error stopping Playwright: {pw_error}")
+        await _cleanup_session(context, browser, pw)
 
     except Exception as e:
-        stop_watchdog(context)
-        # ADP automation error
+        # ADP automation error (login)
         logger.error(f"Error processing new hire: {e}", exc_info=True)
         error_message = f"[FAIL] Error processing new hire:\n{str(e)}"
         await update.message.reply_text(error_message)
-
-        # Send error screenshot if the exception attached one
-        if hasattr(e, "screenshot_path"):
-            try:
-                await send_and_delete_screenshot(
-                    update.message, e.screenshot_path, "Debug screenshot"
-                )
-            except Exception as screenshot_error:
-                logger.error(f"Failed to send debug screenshot: {screenshot_error}")
-
-        # Close browser if opened
-        if browser:
-            try:
-                await browser.close()
-            except Exception:
-                pass
-        if pw:
-            try:
-                await pw.stop()
-                logger.info("Playwright stopped")
-            except Exception as pw_error:
-                logger.error(f"Error stopping Playwright: {pw_error}")
-
-
-async def handle_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /confirm command to submit the pending new hire form.
-
-    Args:
-        update: Telegram update object.
-        context: Telegram context object.
-    """
-    # Check authorization
-    if update.effective_user.id not in settings.allowed_user_ids:
-        await update.message.reply_text("Unauthorized")
-        return
-
-    # Check if there's a pending hire
-    if not context.user_data.get("pending_hire"):
-        await update.message.reply_text("No pending hire to confirm.")
-        return
-
-    browser = None
-    page = None
-
-    try:
-        # Get stored data
-        browser = context.user_data.get("browser")
-        page = context.user_data.get("page")
-        hire = context.user_data.get("hire")
-        associate_id = context.user_data.get("associate_id")
-
-        if not page or not hire or not associate_id:
-            await update.message.reply_text("[FAIL] Session data missing. Please start over with /newhire.")
-            return
-
-        logger.info(f"Confirming submission for: {hire.first_name} {hire.last_name}")
-        await update.message.reply_text(f"Submitting form for {hire.first_name} {hire.last_name} ({associate_id})...")
-
-        # --- Step 1: Save and Exit ---
-        try:
-            # Click Save and Exit via JS — page.click() fails silently
-            # because the button is at the top of the page but the form
-            # is scrolled to the bottom (Emergency Contacts section).
-            await page.wait_for_selector(SAVE_AND_EXIT_BUTTON, timeout=10000)
-
-            # Diagnostic: how many #ENHSaveAndExit elements exist and where?
-            save_btns_info = await page.evaluate("""() => {
-                const btns = document.querySelectorAll('#ENHSaveAndExit');
-                return Array.from(btns).map((btn, i) => ({
-                    index: i,
-                    tag: btn.tagName,
-                    id: btn.id,
-                    type: btn.type,
-                    disabled: btn.disabled,
-                    ariaDisabled: btn.getAttribute('aria-disabled'),
-                    visible: btn.offsetParent !== null,
-                    rect: btn.getBoundingClientRect().toJSON(),
-                    classes: btn.className,
-                    innerText: btn.innerText.substring(0, 50),
-                    parentId: btn.parentElement?.id || '',
-                    parentClass: (btn.parentElement?.className || '').substring(0, 80)
-                }));
-            }""")
-            for info in save_btns_info:
-                logger.info(f"SaveAndExit button: {info}")
-
-            # Also log current scroll position and page dimensions
-            scroll_info = await page.evaluate("""() => ({
-                scrollX: window.scrollX,
-                scrollY: window.scrollY,
-                innerHeight: window.innerHeight,
-                innerWidth: window.innerWidth,
-                bodyHeight: document.body.scrollHeight
-            })""")
-            logger.info(f"Page scroll/dimensions: {scroll_info}")
-
-            await page.locator(SAVE_AND_EXIT_BUTTON).evaluate(
-                "el => { el.scrollIntoView({block: 'center'}); el.click(); }"
-            )
-            logger.info("Clicked Save and Exit via JS")
-
-            await page.wait_for_timeout(2000)
-            try:
-                logger.info(f"Post-save URL: {page.url}")
-                # Check for any visible dialogs or popups
-                dialogs = await page.evaluate("""() => {
-                    const modals = document.querySelectorAll(
-                        '[role="dialog"], [role="alertdialog"], .vdl-modal, '
-                        + '.sdf-modal, [class*="modal"], [class*="dialog"], '
-                        + '[class*="popup"], [class*="overlay"]'
-                    );
-                    return Array.from(modals)
-                        .filter(m => m.offsetParent !== null)
-                        .map(m => ({
-                            tag: m.tagName,
-                            id: m.id || '',
-                            className: (m.className || '').substring(0, 100),
-                            text: (m.innerText || '').substring(0, 200),
-                            rect: m.getBoundingClientRect().toJSON()
-                        }));
-                }""")
-                if dialogs:
-                    for d in dialogs:
-                        logger.info(f"Visible dialog/modal: {d}")
-                else:
-                    logger.info("No visible dialogs or modals detected")
-            except Exception as e:
-                logger.warning(f"Post-save debug failed: {e}")
-
-            # Verify the form actually saved by checking the button disappears
-            try:
-                await page.wait_for_function(
-                    """() => {
-                        const btn = document.querySelector('#ENHSaveAndExit');
-                        return !btn || btn.offsetParent === null;
-                    }""",
-                    timeout=20000
-                )
-                logger.info("Save confirmed — form navigated away")
-            except Exception:
-                logger.warning("Save and Exit may not have worked — retrying")
-                await page.locator(SAVE_AND_EXIT_BUTTON).evaluate(
-                    "el => { el.scrollIntoView({block: 'center'}); el.click(); }"
-                )
-                await page.wait_for_timeout(5000)
-
-                still_visible = await page.evaluate(
-                    "!!document.querySelector('#ENHSaveAndExit')?.offsetParent"
-                )
-                if still_visible:
-                    raise Exception(
-                        "Save and Exit failed — form is still open. "
-                        f"Check for ADP validation errors. URL: {page.url}"
-                    )
-                logger.info("Save confirmed on retry")
-
-            await page.wait_for_timeout(3000)
-
-            screenshot_filename = f"new_hire_submitted_{hire.first_name}_{hire.last_name}".replace(" ", "_")
-            screenshot_path = await capture_screenshot(page, screenshot_filename)
-
-            await send_and_delete_screenshot(
-                update.message,
-                screenshot_path,
-                f"[OK] Form submitted for {hire.first_name} {hire.last_name}",
-            )
-
-            logger.info(f"Form submitted for {hire.first_name} {hire.last_name}")
-
-        except Exception as e:
-            logger.error(f"Error submitting form: {e}", exc_info=True)
-            try:
-                # Playwright locators pierce shadow DOM (sdf-* components); querySelectorAll does not
-                texts = await page.locator(
-                    "sdf-alert, sdf-dialog, sdf-notification, "
-                    "[role='alert'], [role='alertdialog']"
-                ).all_inner_texts()
-                logger.error(f"Save-failure dialog text: {[t[:300] for t in texts if t.strip()]}")
-                error_shot = await capture_screenshot(
-                    page, f"new_hire_save_error_{hire.first_name}_{hire.last_name}".replace(" ", "_")
-                )
-                await send_and_delete_screenshot(
-                    update.message, error_shot, "[FAIL] Save and Exit — debug screenshot"
-                )
-            except Exception as diag_err:
-                logger.warning(f"Save-failure diagnostics failed: {diag_err}")
-            await update.message.reply_text(f"[FAIL] Error submitting form:\n{str(e)}")
-            return
-
-        # --- Step 2: Registration Code ---
-        try:
-            logger.info(f"Sending registration code for Associate ID: {associate_id}")
-            prc_screenshot = await send_registration_code(page, associate_id, hire.email)
-            await send_and_delete_screenshot(
-                update.message,
-                prc_screenshot,
-                f"[OK] Registration code sent to {hire.email}",
-            )
-            logger.info(f"Registration code sent for {hire.first_name} {hire.last_name}")
-
-        except Exception as e:
-            logger.warning(f"Registration code failed: {e}", exc_info=True)
-            await update.message.reply_text(
-                f"Form was saved successfully but registration code failed.\n"
-                f"Associate ID: {associate_id}\n"
-                f"You can send the registration code manually from ADP Security Management."
-            )
-
-    finally:
-        stop_watchdog(context)
-        # Always close browser and clear data
-        if browser:
-            try:
-                await browser.close()
-                logger.info("Browser closed after confirmation")
-            except Exception as close_error:
-                logger.error(f"Error closing browser: {close_error}")
-        pw = context.user_data.get("pw")
-        if pw:
-            try:
-                await pw.stop()
-                logger.info("Playwright stopped")
-            except Exception as pw_error:
-                logger.error(f"Error stopping Playwright: {pw_error}")
-
-        # Clear pending hire data
-        context.user_data.pop("pending_hire", None)
-        context.user_data.pop("pw", None)
-        context.user_data.pop("browser", None)
-        context.user_data.pop("page", None)
-        context.user_data.pop("hire", None)
-        context.user_data.pop("associate_id", None)
+        await _send_screenshot(
+            update.message, getattr(e, "screenshot_path", None), "Debug screenshot"
+        )
+        await _cleanup_session(context, browser, pw)
 
 
 async def handle_cancel_hire(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /cancel command to discard the pending new hire.
+    """Handle /cancel command to abort an operation waiting on an MFA code.
 
     Args:
         update: Telegram update object.
@@ -454,93 +314,23 @@ async def handle_cancel_hire(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("Unauthorized")
         return
 
-    # Check if there's a pending hire
-    if not context.user_data.get("pending_hire"):
-        await update.message.reply_text("No pending hire to cancel.")
+    if not context.user_data.get("awaiting_mfa_code"):
+        await update.message.reply_text("Nothing to cancel.")
         return
 
     try:
-        stop_watchdog(context)
-        # Get stored browser
-        browser = context.user_data.get("browser")
-
-        # Close browser
-        if browser:
-            await browser.close()
-            logger.info("Browser closed after cancellation")
-        pw = context.user_data.get("pw")
-        if pw:
-            try:
-                await pw.stop()
-                logger.info("Playwright stopped")
-            except Exception as pw_error:
-                logger.error(f"Error stopping Playwright: {pw_error}")
-
-        # Clear pending hire data
-        context.user_data.pop("pending_hire", None)
-        context.user_data.pop("pw", None)
-        context.user_data.pop("browser", None)
-        context.user_data.pop("page", None)
-        context.user_data.pop("hire", None)
-        context.user_data.pop("associate_id", None)
-
-        await update.message.reply_text("[FAIL] New hire cancelled.")
-        logger.info("Pending hire cancelled by user")
-
-    except Exception as e:
-        logger.error(f"Error cancelling hire: {e}", exc_info=True)
-        await update.message.reply_text(f"Error during cancellation: {str(e)}")
-
-
-async def auto_cancel_hire(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Auto-cancel pending hire after timeout.
-
-    This is called by job_queue after 5 minutes if no confirmation received.
-
-    Args:
-        context: Telegram context object.
-    """
-    job = context.job
-    user_id = job.data.get("user_id")
-
-    # Check if there's still a pending hire
-    if not context.user_data.get("pending_hire"):
-        return  # Already confirmed or cancelled
-
-    try:
-        stop_watchdog(context)
-        # Get stored browser
-        browser = context.user_data.get("browser")
-
-        # Close browser
-        if browser:
-            await browser.close()
-            logger.info("Browser closed after auto-cancel timeout")
-        pw = context.user_data.get("pw")
-        if pw:
-            try:
-                await pw.stop()
-                logger.info("Playwright stopped")
-            except Exception as pw_error:
-                logger.error(f"Error stopping Playwright: {pw_error}")
-
-        # Clear pending hire data
-        context.user_data.pop("pending_hire", None)
-        context.user_data.pop("pw", None)
-        context.user_data.pop("browser", None)
-        context.user_data.pop("page", None)
-        context.user_data.pop("hire", None)
-        context.user_data.pop("associate_id", None)
-
-        # Send timeout message
-        await context.bot.send_message(
-            chat_id=job.chat_id,
-            text="[WARNING] New hire request timed out after 5 minutes. Please start over with /newhire."
+        # Pops awaiting_mfa_code, so auto_cancel_mfa becomes a no-op
+        await _cleanup_session(
+            context, context.user_data.get("browser"), context.user_data.get("pw")
         )
-        logger.info(f"Auto-cancelled pending hire for user {user_id} due to timeout")
+        context.user_data.pop("check_status_params", None)
+
+        await update.message.reply_text("[FAIL] Cancelled. Browser closed.")
+        logger.info("MFA wait cancelled by user")
 
     except Exception as e:
-        logger.error(f"Error during auto-cancel: {e}", exc_info=True)
+        logger.error(f"Error cancelling operation: {e}", exc_info=True)
+        await update.message.reply_text(f"Error during cancellation: {str(e)}")
 
 
 async def handle_mfa_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -634,8 +424,9 @@ async def handle_mfa_code(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         stop_watchdog(context)
         logger.error(f"MFA verification failed: {e}", exc_info=True)
 
+        mfa_screenshot = None
         try:
-            await capture_screenshot(page, "mfa_verification_error")
+            mfa_screenshot = await capture_screenshot(page, "mfa_verification_error")
         except Exception:
             pass
 
@@ -643,6 +434,7 @@ async def handle_mfa_code(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             f"[FAIL] MFA verification failed:\n{str(e)}\n\n"
             "Please try again."
         )
+        await _send_screenshot(update.message, mfa_screenshot, "MFA error screenshot")
 
         if browser:
             try:
@@ -696,45 +488,10 @@ async def handle_mfa_code(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             context.user_data.pop("page", None)
         return
 
-    # New hire flow
-    pw = context.user_data.get("pw")
-    try:
-        await _run_new_hire_flow(update, context, pw, browser, page, hire)
-
-    except Exception as e:
-        stop_watchdog(context)
-        logger.error(f"Error processing new hire after MFA: {e}", exc_info=True)
-
-        await update.message.reply_text(
-            f"[FAIL] Error processing new hire:\n{str(e)}"
-        )
-
-        # Send error screenshot if the exception attached one
-        if hasattr(e, "screenshot_path"):
-            try:
-                await send_and_delete_screenshot(
-                    update.message, e.screenshot_path, "Debug screenshot"
-                )
-            except Exception:
-                pass
-
-        if browser:
-            try:
-                await browser.close()
-            except Exception:
-                pass
-        pw = context.user_data.get("pw")
-        if pw:
-            try:
-                await pw.stop()
-                logger.info("Playwright stopped")
-            except Exception as pw_error:
-                logger.error(f"Error stopping Playwright: {pw_error}")
-
-        context.user_data.pop("pw", None)
-        context.user_data.pop("browser", None)
-        context.user_data.pop("page", None)
-        context.user_data.pop("hire", None)
+    # New hire flow (handles its own errors and cleanup)
+    await _run_new_hire_flow(
+        update, context, context.user_data.get("pw"), browser, page, hire
+    )
 
 
 async def auto_cancel_mfa(context: ContextTypes.DEFAULT_TYPE) -> None:

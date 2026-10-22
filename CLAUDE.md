@@ -49,8 +49,9 @@ Commands: `/newhire`, `/terminate` (TODO), `/checkstatus`
 
 ## Handler Flow
 
-1. `/newhire` → parse → validate → watchdog start → login (+ MFA relay) → navigate → fill (dry_run) → screenshot → `/confirm` → submit + PRC → watchdog stop → done
-2. Auto-cancel: 5min for form confirmation, 3min for MFA code, 4min for watchdog first alert
+1. `/newhire` → parse → validate → watchdog start → login (+ MFA relay) → navigate → fill + Save & Exit (`dry_run=False`) → filled-form + saved screenshots → PRC + screenshot → summary (warnings first) → cleanup + watchdog stop → done
+2. No `/confirm` step. PRC failure after a successful save is reported as `[PARTIAL]` with the Associate ID. New-hire exit paths and `/cancel` use `_cleanup_session()` in `new_hire.py` (MFA failure/timeout and check-status keep their own cleanup).
+3. Auto-cancel: 3min for MFA code, 4min for watchdog first alert. `/cancel` works during the MFA wait.
 
 ## Key Reference Files
 
@@ -77,3 +78,7 @@ Commands: `/newhire`, `/terminate` (TODO), `/checkstatus`
 1. Handle "Did you start this hire already?" popup
 2. Implement termination workflow
 3. Browser session persistence (skip MFA)
+
+## Virtual Environment
+- Venv (WSL): `~/envs/hr-pilot` — activate with `source ~/envs/hr-pilot/bin/activate`.
+  Do not create new venvs. Run tests with `~/envs/hr-pilot/bin/python -m pytest`.

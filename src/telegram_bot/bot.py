@@ -11,7 +11,6 @@ from src.telegram_bot.handlers.check_status import handle_check_status
 from src.telegram_bot.handlers.common import cancel, debug_screenshot, error_handler, help_command, start
 from src.telegram_bot.handlers.new_hire import (
     handle_cancel_hire,
-    handle_confirm,
     handle_mfa_code,
     handle_new_hire,
 )
@@ -43,7 +42,6 @@ def create_bot() -> None:
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("newhire", handle_new_hire))
-    app.add_handler(CommandHandler("confirm", handle_confirm))
     app.add_handler(CommandHandler("cancel", handle_cancel_hire))
     app.add_handler(CommandHandler("terminate", handle_termination))
     app.add_handler(CommandHandler("checkstatus", handle_check_status))

@@ -763,21 +763,137 @@ async def fill_new_hire_form(page: Page, hire: NewHire, dry_run: bool = True) ->
         # ====================================================================
         logger.info("Submitting and saving new hire form")
 
-        await page.wait_for_selector(SAVE_AND_EXIT_BUTTON, timeout=20000)
-        await page.click(SAVE_AND_EXIT_BUTTON)
+        # Keep the filled-form screenshot; screenshot_path is reused post-save
+        review_screenshot_path = screenshot_path
 
-        # Wait for redirect to In-Progress Hires page
-        await page.wait_for_timeout(3000)
+        try:
+            # Click Save and Exit via JS — page.click() fails silently
+            # because the button is at the top of the page but the form
+            # is scrolled to the bottom (Emergency Contacts section).
+            await page.wait_for_selector(SAVE_AND_EXIT_BUTTON, timeout=20000)
 
-        # Take success screenshot
+            # Diagnostic: how many #ENHSaveAndExit elements exist and where?
+            save_btns_info = await page.evaluate("""() => {
+                const btns = document.querySelectorAll('#ENHSaveAndExit');
+                return Array.from(btns).map((btn, i) => ({
+                    index: i,
+                    tag: btn.tagName,
+                    id: btn.id,
+                    type: btn.type,
+                    disabled: btn.disabled,
+                    ariaDisabled: btn.getAttribute('aria-disabled'),
+                    visible: btn.offsetParent !== null,
+                    rect: btn.getBoundingClientRect().toJSON(),
+                    classes: btn.className,
+                    innerText: btn.innerText.substring(0, 50),
+                    parentId: btn.parentElement?.id || '',
+                    parentClass: (btn.parentElement?.className || '').substring(0, 80)
+                }));
+            }""")
+            for info in save_btns_info:
+                logger.info(f"SaveAndExit button: {info}")
+
+            # Also log current scroll position and page dimensions
+            scroll_info = await page.evaluate("""() => ({
+                scrollX: window.scrollX,
+                scrollY: window.scrollY,
+                innerHeight: window.innerHeight,
+                innerWidth: window.innerWidth,
+                bodyHeight: document.body.scrollHeight
+            })""")
+            logger.info(f"Page scroll/dimensions: {scroll_info}")
+
+            await page.locator(SAVE_AND_EXIT_BUTTON).evaluate(
+                "el => { el.scrollIntoView({block: 'center'}); el.click(); }"
+            )
+            logger.info("Clicked Save and Exit via JS")
+
+            await page.wait_for_timeout(2000)
+            try:
+                logger.info(f"Post-save URL: {page.url}")
+                # Check for any visible dialogs or popups
+                dialogs = await page.evaluate("""() => {
+                    const modals = document.querySelectorAll(
+                        '[role="dialog"], [role="alertdialog"], .vdl-modal, '
+                        + '.sdf-modal, [class*="modal"], [class*="dialog"], '
+                        + '[class*="popup"], [class*="overlay"]'
+                    );
+                    return Array.from(modals)
+                        .filter(m => m.offsetParent !== null)
+                        .map(m => ({
+                            tag: m.tagName,
+                            id: m.id || '',
+                            className: (m.className || '').substring(0, 100),
+                            text: (m.innerText || '').substring(0, 200),
+                            rect: m.getBoundingClientRect().toJSON()
+                        }));
+                }""")
+                if dialogs:
+                    for d in dialogs:
+                        logger.info(f"Visible dialog/modal: {d}")
+                else:
+                    logger.info("No visible dialogs or modals detected")
+            except Exception as e:
+                logger.warning(f"Post-save debug failed: {e}")
+
+            # Verify the form actually saved by checking the button disappears
+            try:
+                await page.wait_for_function(
+                    """() => {
+                        const btn = document.querySelector('#ENHSaveAndExit');
+                        return !btn || btn.offsetParent === null;
+                    }""",
+                    timeout=20000
+                )
+                logger.info("Save confirmed — form navigated away")
+            except Exception:
+                logger.warning("Save and Exit may not have worked — retrying")
+                await page.locator(SAVE_AND_EXIT_BUTTON).evaluate(
+                    "el => { el.scrollIntoView({block: 'center'}); el.click(); }"
+                )
+                await page.wait_for_timeout(5000)
+
+                still_visible = await page.evaluate(
+                    "!!document.querySelector('#ENHSaveAndExit')?.offsetParent"
+                )
+                if still_visible:
+                    raise Exception(
+                        "Save and Exit failed — form is still open. "
+                        f"Check for ADP validation errors. URL: {page.url}"
+                    )
+                logger.info("Save confirmed on retry")
+
+            await page.wait_for_timeout(3000)
+
+        except Exception:
+            # Log ADP's validation text; the outer except captures and attaches
+            # the failure screenshot, which _run_new_hire_flow sends to Telegram.
+            try:
+                # Playwright locators pierce shadow DOM (sdf-* components); querySelectorAll does not
+                texts = await page.locator(
+                    "sdf-alert, sdf-dialog, sdf-notification, "
+                    "[role='alert'], [role='alertdialog']"
+                ).all_inner_texts()
+                logger.error(f"Save-failure dialog text: {[t[:300] for t in texts if t.strip()]}")
+            except Exception as diag_err:
+                logger.warning(f"Save-failure diagnostics failed: {diag_err}")
+            raise
+
+        # Take success screenshot — a capture failure must not mask a saved form
         screenshot_filename = f"new_hire_submitted_{hire.first_name}_{hire.last_name}".replace(" ", "_")
-        screenshot_path = await capture_screenshot(page, screenshot_filename)
+        try:
+            screenshot_path = await capture_screenshot(page, screenshot_filename)
+        except Exception as e:
+            logger.warning(f"Post-save screenshot failed: {e}")
+            screenshot_path = None
+            warnings.append("Post-save screenshot failed — form WAS saved, verify in ADP")
 
         logger.info(f"Successfully submitted new hire: {hire.first_name} {hire.last_name}")
         logger.info(f"Associate ID: {associate_id}")
 
         return {
             "associate_id": associate_id,
+            "review_screenshot_path": review_screenshot_path,
             "screenshot_path": screenshot_path,
             "submitted": True,
             "warnings": warnings,

@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     # Private: populated by model_validator after init
     _adp_credentials: Dict[int, AdpCredentials] = PrivateAttr(default_factory=dict)
 
-    model_config = SettingsConfigDict(env_file=".env", extra="allow")
+    model_config = SettingsConfigDict(env_file=".env", extra="allow", hide_input_in_errors=True)
 
     @property
     def allowed_user_ids(self) -> List[int]:
